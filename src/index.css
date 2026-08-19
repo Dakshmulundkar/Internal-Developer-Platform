@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#0b0f19] text-slate-100 antialiased font-sans;
+  }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0b0f19;
+}
+::-webkit-scrollbar-thumb {
+  background: #1f2937;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #374151;
+}
+
+/* Custom glow borders */
+.glow-success {
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
+}
+.glow-error {
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.15);
+}
+.glow-warning {
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.15);
+}
+.glow-info {
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.15);
+}
+
+/* AI chat loading dots animation */
+@keyframes blink {
+  0% { opacity: .2; }
+  20% { opacity: 1; }
+  100% { opacity: .2; }
+}
+
+.ai-dots span {
+  animation-name: blink;
+  animation-duration: 1.4s;
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+}
+
+.ai-dots span:nth-child(2) {
+  animation-delay: .2s;
+}
+
+.ai-dots span:nth-child(3) {
+  animation-delay: .4s;
+}

@@ -1,0 +1,84 @@
+import React from 'react';
+import { PlatformProvider, usePlatform } from './context/PlatformContext';
+import { Sidebar } from './components/Sidebar';
+import { Header } from './components/Header';
+
+// Pages
+import { Login } from './pages/Login';
+import { Dashboard } from './pages/Dashboard';
+import { Projects } from './pages/Projects';
+import { CreateProjectWizard } from './pages/CreateProjectWizard';
+import { ProjectDetails } from './pages/ProjectDetails';
+import { Deployments } from './pages/Deployments';
+import { DeploymentDetails } from './pages/DeploymentDetails';
+import { Incidents } from './pages/Incidents';
+import { RollbackRecovery } from './pages/RollbackRecovery';
+import { AIAssistant } from './pages/AIAssistant';
+import { Notifications } from './pages/Notifications';
+import { Settings } from './pages/Settings';
+
+const AppContent: React.FC = () => {
+  const { user, currentPage } = usePlatform();
+
+  // Route/Tab Switcher
+  const renderPage = () => {
+    switch (currentPage) {
+      case 'dashboard':
+        return <Dashboard />;
+      case 'projects':
+        return <Projects />;
+      case 'create-project':
+        return <CreateProjectWizard />;
+      case 'project-details':
+        return <ProjectDetails />;
+      case 'deployments':
+        return <Deployments />;
+      case 'deployment-details':
+        return <DeploymentDetails />;
+      case 'incidents':
+        return <Incidents />;
+      case 'rollback-recovery':
+        return <RollbackRecovery />;
+      case 'ai-assistant':
+        return <AIAssistant />;
+      case 'notifications':
+        return <Notifications />;
+      case 'settings':
+        return <Settings />;
+      case 'login':
+      default:
+        return <Login />;
+    }
+  };
+
+  // If not logged in, force Login page
+  if (!user) {
+    return <Login />;
+  }
+
+  return (
+    <div className="flex h-screen w-screen overflow-hidden bg-dark-950">
+      {/* Side Navigation Bar */}
+      <Sidebar />
+
+      {/* Main Container */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        {/* Header Bar */}
+        <Header />
+
+        {/* Dynamic Page Scroll Area */}
+        <main className="flex-1 overflow-y-auto p-6 bg-dark-950">
+          {renderPage()}
+        </main>
+      </div>
+    </div>
+  );
+};
+
+export default function App() {
+  return (
+    <PlatformProvider>
+      <AppContent />
+    </PlatformProvider>
+  );
+}
