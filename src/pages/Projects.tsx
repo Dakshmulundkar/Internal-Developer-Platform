@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import { 
-  Search, Filter, Plus, Github, ExternalLink, 
-  ArrowRight, ShieldAlert, CheckCircle, Clock, RefreshCw, XCircle
+  Search, Plus, Github, ArrowRight, FolderGit2
 } from 'lucide-react';
 import type { Project, DeploymentStatus } from '../types/platform';
 
 export const Projects: React.FC = () => {
-  const { projects, navigateTo, deployments } = usePlatform();
+  const { projects, navigateTo, deployments, pluginInstallations } = usePlatform();
   const [searchTerm, setSearchTerm] = useState('');
   const [providerFilter, setProviderFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -207,6 +206,26 @@ export const Projects: React.FC = () => {
                   <span className="text-slate-500">Last Deploy</span>
                   <span className="font-mono text-[10px] text-slate-300">{getLastDeployInfo(project.id)}</span>
                 </div>
+
+                {/* Active plugins */}
+                {(() => {
+                  const pluginsForProject = pluginInstallations.filter(p => p.enabledForProjects.includes(project.id));
+                  if (pluginsForProject.length === 0) return null;
+                  return (
+                    <div className="flex justify-between text-xs items-center">
+                      <span className="text-slate-500">Plugins</span>
+                      <div className="flex gap-1">
+                        {pluginsForProject.slice(0, 4).map(p => (
+                          <span key={p.id} className={`text-[8px] font-black font-mono px-1.5 py-0.5 rounded border ${
+                            p.status === 'connected' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
+                            p.status === 'error' ? 'text-rose-400 bg-rose-500/10 border-rose-500/20' :
+                            'text-slate-400 bg-dark-800 border-dark-700'
+                          }`}>{p.pluginName.slice(0,2).toUpperCase()}</span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Card Footer Actions */}

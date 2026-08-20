@@ -34,6 +34,9 @@ export const Header: React.FC = () => {
       case 'ai-assistant': return 'Aether AI Diagnostic Co-pilot';
       case 'notifications': return 'Audit Logs & Notifications';
       case 'settings': return 'Settings & Credentials';
+      case 'integrations': return 'Plugin Marketplace & Integrations';
+      case 'plugin-config': return 'Plugin Configuration';
+      case 'monitoring': return 'Monitoring & Observability';
       default: return 'Control Center';
     }
   };

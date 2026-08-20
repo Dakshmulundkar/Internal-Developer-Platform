@@ -146,3 +146,89 @@ export interface AIChatMessage {
   causes?: string[];
   recommendations?: string[];
 }
+
+// ────────────────────────────────────────────────
+// Plugin / Integration System
+// ────────────────────────────────────────────────
+
+export type PluginCategory = 'deployment' | 'monitoring' | 'error_tracking' | 'collaboration' | 'source_control';
+export type PluginAuthMethod = 'api_key' | 'oauth' | 'webhook' | 'basic_auth';
+export type PluginStatus = 'connected' | 'disconnected' | 'syncing' | 'error' | 'not_installed';
+
+export interface PluginDefinition {
+  id: string;
+  name: string;
+  provider: string;
+  category: PluginCategory;
+  description: string;
+  capabilities: string[];
+  requiredPermissions: string[];
+  authMethod: PluginAuthMethod;
+  webhookEvents?: string[];
+  docsUrl?: string;
+  iconColor: string;      // Tailwind color class for icon accent
+  iconLabel: string;      // Short label shown in icon badge
+}
+
+export interface PluginInstallation {
+  id: string;
+  pluginId: string;
+  pluginName: string;
+  category: PluginCategory;
+  status: PluginStatus;
+  apiKey?: string;         // masked – never expose full key
+  apiKeyHint?: string;     // e.g. "gf_••••••••3a9b"
+  baseUrl?: string;        // e.g. "https://grafana.company.com"
+  projectSelector?: string;  // external project/service name
+  webhookUrl?: string;
+  webhookSecret?: string;
+  lastSyncAt?: string;
+  installedAt: string;
+  installedById: string;
+  enabledForProjects: string[];   // IDP project IDs
+  recentEvents?: { message: string; timestamp: string; type: 'info' | 'error' | 'success' }[];
+  errorMessage?: string;
+}
+
+// ────────────────────────────────────────────────
+// Monitoring / Observability
+// ────────────────────────────────────────────────
+
+export type AlertSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+export type AlertStatus = 'firing' | 'resolved' | 'pending' | 'no_data';
+export type AlertSource = 'grafana' | 'datadog' | 'sentry' | 'vercel' | 'netlify';
+
+export interface MonitoringAlert {
+  id: string;
+  source: AlertSource;
+  title: string;
+  description: string;
+  severity: AlertSeverity;
+  status: AlertStatus;
+  projectId?: string;
+  projectName?: string;
+  deploymentId?: string;
+  incidentId?: string;
+  labels?: Record<string, string>;
+  value?: string;           // e.g. "p99: 3400ms"
+  threshold?: string;       // e.g. "> 2000ms"
+  firedAt: string;
+  resolvedAt?: string;
+  url?: string;             // link back to source dashboard
+}
+
+export interface SentryIssue {
+  id: string;
+  title: string;
+  culprit: string;
+  status: 'unresolved' | 'resolved' | 'ignored';
+  level: 'fatal' | 'error' | 'warning' | 'info';
+  projectId?: string;
+  deploymentId?: string;
+  count: number;
+  firstSeen: string;
+  lastSeen: string;
+  release?: string;
+  environment?: string;
+  stackTrace?: string;
+}

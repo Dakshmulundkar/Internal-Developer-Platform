@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { 
   Project, Deployment, Incident, RollbackOperation, Notification, AuditLog, User,
-  DeploymentStatus, IncidentStatus, IncidentSeverity, ProviderType, EnvironmentType
+  DeploymentStatus, IncidentStatus, IncidentSeverity, ProviderType, EnvironmentType,
+  PluginInstallation, MonitoringAlert, SentryIssue
 } from '../types/platform';
 import { 
   currentUser as initialUser,
@@ -11,7 +12,11 @@ import {
   initialRollbackOperations,
   initialNotifications,
   initialAuditLogs,
-  aiExplanations
+  aiExplanations,
+  initialPluginInstallations,
+  initialMonitoringAlerts,
+  initialSentryIssues,
+  pluginDefinitions
 } from '../data/seedData';
 
 type PageType = 
@@ -26,6 +31,9 @@ type PageType =
   | 'ai-assistant'
   | 'notifications'
   | 'settings'
+  | 'integrations'
+  | 'plugin-config'
+  | 'monitoring'
   | 'login';
 
 interface PlatformContextProps {
@@ -36,13 +44,17 @@ interface PlatformContextProps {
   rollbackOperations: RollbackOperation[];
   notifications: Notification[];
   auditLogs: AuditLog[];
+  pluginInstallations: PluginInstallation[];
+  monitoringAlerts: MonitoringAlert[];
+  sentryIssues: SentryIssue[];
   currentPage: PageType;
   activeProjectId: string | null;
   activeDeploymentId: string | null;
   activeIncidentId: string | null;
+  activePluginId: string | null;
   
   // Navigation
-  navigateTo: (page: PageType, contextIds?: { projectId?: string; deploymentId?: string; incidentId?: string }) => void;
+  navigateTo: (page: PageType, contextIds?: { projectId?: string; deploymentId?: string; incidentId?: string; pluginId?: string }) => void;
   
   // Auth Actions
   loginUser: (email: string, provider?: string) => void;
@@ -56,6 +68,11 @@ interface PlatformContextProps {
   resolveIncident: (incidentId: string) => void;
   markNotificationAsRead: (notificationId: string) => void;
   markAllNotificationsRead: () => void;
+  
+  // Plugin Actions
+  installPlugin: (pluginId: string) => void;
+  uninstallPlugin: (installationId: string) => void;
+  updatePluginConfig: (installationId: string, config: Partial<PluginInstallation>) => void;
   
   // Webhook Simulator
   triggerWebhookSimulation: (projectId: string, forceStatus?: DeploymentStatus) => void;
@@ -100,6 +117,18 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return saved ? JSON.parse(saved) : initialAuditLogs;
   });
 
+  const [pluginInstallations, setPluginInstallations] = useState<PluginInstallation[]>(() => {
+    const saved = localStorage.getItem('idp_plugins');
+    return saved ? JSON.parse(saved) : initialPluginInstallations;
+  });
+
+  const [monitoringAlerts, setMonitoringAlerts] = useState<MonitoringAlert[]>(() => {
+    const saved = localStorage.getItem('idp_alerts');
+    return saved ? JSON.parse(saved) : initialMonitoringAlerts;
+  });
+
+  const [sentryIssues] = useState<SentryIssue[]>(initialSentryIssues);
+
   // Navigation Context
   const [currentPage, setCurrentPage] = useState<PageType>(() => {
     const saved = localStorage.getItem('idp_page');
@@ -116,6 +145,10 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const [activeIncidentId, setActiveIncidentId] = useState<string | null>(() => {
     return localStorage.getItem('idp_active_incident');
+  });
+
+  const [activePluginId, setActivePluginId] = useState<string | null>(() => {
+    return localStorage.getItem('idp_active_plugin');
   });
 
   // Sync to localStorage
@@ -148,11 +181,19 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [auditLogs]);
 
   useEffect(() => {
+    localStorage.setItem('idp_plugins', JSON.stringify(pluginInstallations));
+  }, [pluginInstallations]);
+
+  useEffect(() => {
+    localStorage.setItem('idp_alerts', JSON.stringify(monitoringAlerts));
+  }, [monitoringAlerts]);
+
+  useEffect(() => {
     localStorage.setItem('idp_page', currentPage);
   }, [currentPage]);
 
   // Navigation Helper
-  const navigateTo = (page: PageType, contextIds?: { projectId?: string; deploymentId?: string; incidentId?: string }) => {
+  const navigateTo = (page: PageType, contextIds?: { projectId?: string; deploymentId?: string; incidentId?: string; pluginId?: string }) => {
     if (contextIds?.projectId) {
       setActiveProjectId(contextIds.projectId);
       localStorage.setItem('idp_active_project', contextIds.projectId);
@@ -164,6 +205,10 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (contextIds?.incidentId) {
       setActiveIncidentId(contextIds.incidentId);
       localStorage.setItem('idp_active_incident', contextIds.incidentId);
+    }
+    if (contextIds?.pluginId) {
+      setActivePluginId(contextIds.pluginId);
+      localStorage.setItem('idp_active_plugin', contextIds.pluginId);
     }
     
     // Auto-login check
@@ -813,6 +858,105 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, 5000);
   };
 
+  // Plugin Actions
+  const installPlugin = (pluginId: string) => {
+    if (!user) return;
+    const alreadyInstalled = pluginInstallations.find(p => p.pluginId === pluginId);
+    if (alreadyInstalled) return;
+
+    const def = pluginDefinitions.find(d => d.id === pluginId);
+    if (!def) return;
+
+    const newInst: PluginInstallation = {
+      id: 'inst_' + Math.random().toString(36).substr(2, 9),
+      pluginId,
+      pluginName: def.name,
+      category: def.category,
+      status: 'disconnected',
+      installedAt: new Date().toISOString(),
+      installedById: user.id,
+      enabledForProjects: [],
+      recentEvents: [{ message: 'Plugin installed. Configure credentials to connect.', timestamp: new Date().toISOString(), type: 'info' }],
+    };
+    setPluginInstallations(prev => [...prev, newInst]);
+
+    const newAudit: AuditLog = {
+      id: 'a_' + Math.random().toString(36).substr(2, 9),
+      userId: user.id,
+      userName: user.name,
+      action: 'PLUGIN_INSTALL',
+      details: `Installed plugin: ${def.name}. Awaiting credential configuration.`,
+      createdAt: new Date().toISOString(),
+    };
+    setAuditLogs(prev => [newAudit, ...prev]);
+
+    setNotifications(prev => [{
+      id: 'n_' + Math.random().toString(36).substr(2, 9),
+      title: 'Plugin Installed',
+      message: `${def.name} plugin installed. Configure credentials in Integrations to connect.`,
+      type: 'info',
+      read: false,
+      createdAt: new Date().toISOString(),
+    }, ...prev]);
+  };
+
+  const uninstallPlugin = (installationId: string) => {
+    if (!user) return;
+    const inst = pluginInstallations.find(p => p.id === installationId);
+    if (!inst) return;
+
+    setPluginInstallations(prev => prev.filter(p => p.id !== installationId));
+
+    const newAudit: AuditLog = {
+      id: 'a_' + Math.random().toString(36).substr(2, 9),
+      userId: user.id,
+      userName: user.name,
+      action: 'PLUGIN_REMOVE',
+      details: `Removed plugin: ${inst.pluginName}. Webhooks deregistered.`,
+      createdAt: new Date().toISOString(),
+    };
+    setAuditLogs(prev => [newAudit, ...prev]);
+  };
+
+  const updatePluginConfig = (installationId: string, config: Partial<PluginInstallation>) => {
+    if (!user) return;
+    setPluginInstallations(prev => prev.map(p => {
+      if (p.id !== installationId) return p;
+      const updated = { ...p, ...config };
+      // Simulate connection test on save
+      if (config.apiKey || config.apiKeyHint) {
+        updated.status = 'connected';
+        updated.lastSyncAt = new Date().toISOString();
+        updated.errorMessage = undefined;
+        updated.recentEvents = [
+          { message: 'Credentials verified. Connection established.', timestamp: new Date().toISOString(), type: 'success' },
+          ...(p.recentEvents || []).slice(0, 4),
+        ];
+      }
+      return updated;
+    }));
+
+    const inst = pluginInstallations.find(p => p.id === installationId);
+    const newAudit: AuditLog = {
+      id: 'a_' + Math.random().toString(36).substr(2, 9),
+      userId: user.id,
+      userName: user.name,
+      action: 'PLUGIN_CONFIG',
+      details: `Updated configuration for plugin: ${inst?.pluginName || installationId}.`,
+      createdAt: new Date().toISOString(),
+    };
+    setAuditLogs(prev => [newAudit, ...prev]);
+
+    setNotifications(prev => [{
+      id: 'n_' + Math.random().toString(36).substr(2, 9),
+      title: 'Plugin Configuration Saved',
+      message: `${inst?.pluginName || 'Plugin'} credentials updated and connection verified.`,
+      type: 'success',
+      read: false,
+      createdAt: new Date().toISOString(),
+    }, ...prev]);
+  };
+
   return (
     <PlatformContext.Provider value={{
       user,
@@ -822,10 +966,14 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       rollbackOperations,
       notifications,
       auditLogs,
+      pluginInstallations,
+      monitoringAlerts,
+      sentryIssues,
       currentPage,
       activeProjectId,
       activeDeploymentId,
       activeIncidentId,
+      activePluginId,
       navigateTo,
       loginUser,
       logoutUser,
@@ -836,6 +984,9 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       resolveIncident,
       markNotificationAsRead,
       markAllNotificationsRead,
+      installPlugin,
+      uninstallPlugin,
+      updatePluginConfig,
       triggerWebhookSimulation
     }}>
       {children}
