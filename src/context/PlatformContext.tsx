@@ -221,17 +221,15 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Auth Operations
   const loginUser = (email: string, provider?: string) => {
-    const name = email.split('@')[0];
-    const capitalized = name.charAt(0).toUpperCase() + name.slice(1);
     const mockUser: User = {
       id: 'u_' + Math.random().toString(36).substr(2, 9),
-      name: provider ? `${provider} Developer` : capitalized,
+      name: 'Daksh Mulundkar',
       email: email,
       avatarUrl: provider === 'GitHub' 
         ? 'https://images.unsplash.com/photo-1618401471353-b98aedd07871?auto=format&fit=crop&w=80&h=80&q=80'
-        : 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=80&h=80&q=80',
+        : 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&h=80&q=80',
       role: 'admin',
-      connectedGithub: provider === 'GitHub' ? name : undefined,
+      connectedGithub: 'Dakshmulundkar',
       connectedVercel: true,
       connectedNetlify: false,
     };
