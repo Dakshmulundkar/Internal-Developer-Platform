@@ -2,9 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+* { box-sizing: border-box; }
+
+::selection { background: rgba(255,255,255,0.2); color: white; }
+
 @layer base {
   body {
-    @apply bg-[#0b0f19] text-slate-100 antialiased font-sans;
+    background: #050505;
+    color: rgb(161,161,170);
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
 }
 
@@ -14,28 +21,20 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0b0f19;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1f2937;
-  border-radius: 4px;
+  background: #3f3f46;
+  border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #374151;
+  background: #52525b;
 }
 
-/* Custom glow borders */
-.glow-success {
-  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
-}
-.glow-error {
-  box-shadow: 0 0 10px rgba(239, 68, 68, 0.15);
-}
-.glow-warning {
-  box-shadow: 0 0 10px rgba(245, 158, 11, 0.15);
-}
-.glow-info {
-  box-shadow: 0 0 10px rgba(59, 130, 246, 0.15);
+/* Glass effect */
+.glass {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 /* AI chat loading dots animation */
@@ -58,4 +57,24 @@
 
 .ai-dots span:nth-child(3) {
   animation-delay: .4s;
+}
+
+/* Native select dropdown styling — forces dark theme on all pages */
+select {
+  background-color: #0a0a0a;
+  color: rgb(228, 228, 231); /* zinc-200 — bright enough to read */
+  border-color: rgba(255,255,255,0.08);
+}
+
+select option {
+  background-color: #111111;
+  color: rgb(228, 228, 231);
+}
+
+select option:hover,
+select option:focus,
+select option:active,
+select option:checked {
+  background-color: #1f1f1f;
+  color: #ffffff;
 }

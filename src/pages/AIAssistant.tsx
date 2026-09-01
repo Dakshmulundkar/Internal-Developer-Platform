@@ -142,20 +142,20 @@ export const AIAssistant: React.FC = () => {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-140px)] items-stretch">
       {/* Context Selection Panel */}
-      <div className="bg-dark-900 border border-dark-700 rounded-xl p-4 space-y-4 lg:col-span-1 flex flex-col justify-between">
+      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 space-y-4 lg:col-span-1 flex flex-col justify-between">
         <div className="space-y-4">
-          <div className="flex items-center gap-2 border-b border-dark-750 pb-2.5">
-            <Cpu size={16} className="text-brand-400" />
-            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">AI Diagnostic Scope</h3>
+          <div className="flex items-center gap-2 border-b border-white/[0.06] pb-2.5">
+            <Cpu size={16} className="text-zinc-500" />
+            <h3 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">AI Diagnostic Scope</h3>
           </div>
 
           {/* Project select */}
           <div className="space-y-1.5">
-            <label className="block text-[10px] font-semibold text-slate-400 uppercase">Service Project</label>
+            <label className="block text-[10px] font-semibold text-zinc-500 uppercase">Service Project</label>
             <select
               value={selectedProjId}
               onChange={(e) => setSelectedProjId(e.target.value)}
-              className="w-full bg-dark-950 border border-dark-750 rounded p-1.5 text-xs text-white focus:outline-none focus:border-brand-500 font-mono"
+              className="w-full bg-black/30 border border-white/[0.06] text-zinc-100 focus:outline-none focus:border-white/20 rounded-md p-1.5 text-xs font-mono"
             >
               {projects.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
@@ -165,11 +165,11 @@ export const AIAssistant: React.FC = () => {
 
           {/* Deployment select */}
           <div className="space-y-1.5">
-            <label className="block text-[10px] font-semibold text-slate-400 uppercase">Build Run</label>
+            <label className="block text-[10px] font-semibold text-zinc-500 uppercase">Build Run</label>
             <select
               value={selectedDeployId}
               onChange={(e) => setSelectedDeployId(e.target.value)}
-              className="w-full bg-dark-950 border border-dark-750 rounded p-1.5 text-xs text-white focus:outline-none focus:border-brand-500 font-mono"
+              className="w-full bg-black/30 border border-white/[0.06] text-zinc-100 focus:outline-none focus:border-white/20 rounded-md p-1.5 text-xs font-mono"
             >
               <option value="">-- Choose run --</option>
               {projectDeploys.map(d => (
@@ -182,11 +182,11 @@ export const AIAssistant: React.FC = () => {
 
           {/* Incident select */}
           <div className="space-y-1.5">
-            <label className="block text-[10px] font-semibold text-slate-400 uppercase">Incident Alert</label>
+            <label className="block text-[10px] font-semibold text-zinc-500 uppercase">Incident Alert</label>
             <select
               value={selectedIncidentId}
               onChange={(e) => setSelectedIncidentId(e.target.value)}
-              className="w-full bg-dark-950 border border-dark-750 rounded p-1.5 text-xs text-white focus:outline-none focus:border-brand-500 font-mono"
+              className="w-full bg-black/30 border border-white/[0.06] text-zinc-100 focus:outline-none focus:border-white/20 rounded-md p-1.5 text-xs font-mono"
             >
               <option value="">-- Choose incident --</option>
               {projectIncidents.map(i => (
@@ -199,21 +199,21 @@ export const AIAssistant: React.FC = () => {
         </div>
 
         {/* AI Disclaimer */}
-        <div className="p-3 bg-dark-950/40 rounded border border-dark-750 text-[10px] text-slate-500 leading-normal flex gap-2">
-          <Info size={18} className="shrink-0 text-slate-400" />
+        <div className="p-3 bg-white/[0.02] rounded border border-white/[0.06] text-[10px] text-zinc-500 leading-normal flex gap-2">
+          <Info size={18} className="shrink-0 text-zinc-600" />
           <span>
-            <b>Aether Guardrails:</b> Aether diagnostics provide advice. AI does not perform destructive rollbacks autonomously. Manual confirmations are required.
+            <b className="text-zinc-400">Aether Guardrails:</b> Aether diagnostics provide advice. AI does not perform destructive rollbacks autonomously. Manual confirmations are required.
           </span>
         </div>
       </div>
 
       {/* Main Chat Interface */}
-      <div className="bg-dark-900 border border-dark-700 rounded-xl lg:col-span-3 flex flex-col overflow-hidden shadow-2xl h-full">
+      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl lg:col-span-3 flex flex-col overflow-hidden h-full">
         {/* Chat Header */}
-        <div className="bg-dark-950 border-b border-dark-750 px-4 py-3 flex items-center justify-between">
+        <div className="bg-white/[0.02] border-b border-white/[0.06] px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs">
-            <Bot size={16} className="text-brand-400" />
-            <span className="font-bold text-slate-200">Aether Diagnostic Assistant</span>
+            <Bot size={16} className="text-zinc-400" />
+            <span className="font-semibold text-zinc-200">Aether Diagnostic Assistant</span>
           </div>
           <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
             <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
@@ -228,8 +228,8 @@ export const AIAssistant: React.FC = () => {
             return (
               <div key={msg.id} className={`flex gap-3 max-w-3xl ${isAI ? '' : 'ml-auto flex-row-reverse'}`}>
                 {/* Avatar */}
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border border-dark-700 ${
-                  isAI ? 'bg-brand-600/10 text-brand-400 glow-info' : 'bg-dark-950 text-slate-400'
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border ${
+                  isAI ? 'bg-white/[0.03] text-zinc-400 border-white/[0.06]' : 'bg-white/[0.03] text-zinc-500 border-white/[0.06]'
                 }`}>
                   {isAI ? <Bot size={16} /> : <Terminal size={14} />}
                 </div>
@@ -237,23 +237,23 @@ export const AIAssistant: React.FC = () => {
                 {/* Message Body */}
                 <div className={`p-4 rounded-xl space-y-3 leading-relaxed border ${
                   isAI 
-                    ? 'bg-dark-950/20 border-dark-750 text-slate-300' 
-                    : 'bg-brand-600 border-brand-500 text-white shadow-lg shadow-brand-600/10'
+                    ? 'bg-white/[0.02] border-white/[0.06] text-zinc-300' 
+                    : 'bg-white/5 border-white/10 text-zinc-100'
                 }`}>
                   <p className="whitespace-pre-wrap">{msg.content}</p>
 
                   {/* Dynamic AI Diagnostic metadata indicators */}
                   {isAI && msg.confidenceScore && (
-                    <div className="flex flex-wrap gap-2 pt-2 border-t border-dark-750 text-[10px] font-mono text-slate-500">
-                      <span>Confidence score: <b className="text-brand-400">{msg.confidenceScore}%</b></span>
+                    <div className="flex flex-wrap gap-2 pt-2 border-t border-white/[0.06] text-[10px] font-mono text-zinc-500">
+                      <span>Confidence score: <b className="text-zinc-300">{msg.confidenceScore}%</b></span>
                     </div>
                   )}
 
                   {/* Causes items */}
                   {isAI && msg.causes && msg.causes.length > 0 && (
-                    <div className="space-y-1 pt-2 border-t border-dark-750/30">
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-rose-400 font-mono">Potential Faults</span>
-                      <ul className="list-disc pl-4 space-y-1 text-slate-400">
+                    <div className="space-y-1 pt-2 border-t border-white/[0.06]">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-red-400 font-mono">Potential Faults</span>
+                      <ul className="list-disc pl-4 space-y-1 text-zinc-400">
                         {msg.causes.map((c, i) => <li key={i}>{c}</li>)}
                       </ul>
                     </div>
@@ -263,7 +263,7 @@ export const AIAssistant: React.FC = () => {
                   {isAI && msg.recommendations && msg.recommendations.length > 0 && (
                     <div className="space-y-1 pt-2">
                       <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-400 font-mono">Recovery Steps</span>
-                      <ul className="list-decimal pl-4 space-y-1 text-slate-400">
+                      <ul className="list-decimal pl-4 space-y-1 text-zinc-400">
                         {msg.recommendations.map((r, i) => <li key={i}>{r}</li>)}
                       </ul>
                     </div>
@@ -276,10 +276,10 @@ export const AIAssistant: React.FC = () => {
           {/* Typing Indicator */}
           {isTyping && (
             <div className="flex gap-3 max-w-sm">
-              <div className="w-8 h-8 rounded-lg bg-brand-600/10 text-brand-400 border border-dark-700 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-white/[0.03] text-zinc-500 border border-white/[0.06] flex items-center justify-center">
                 <Bot size={16} className="animate-bounce" />
               </div>
-              <div className="p-3 bg-dark-950/20 border border-dark-750 text-slate-400 rounded-xl flex items-center gap-1.5 font-mono text-[10px]">
+              <div className="p-3 bg-white/[0.02] border border-white/[0.06] text-zinc-500 rounded-xl flex items-center gap-1.5 font-mono text-[10px]">
                 <span className="ai-dots flex gap-1">
                   <span>.</span><span>.</span><span>.</span>
                 </span>
@@ -290,13 +290,13 @@ export const AIAssistant: React.FC = () => {
         </div>
 
         {/* Sample Questions Drawer */}
-        <div className="px-4 py-2 border-t border-dark-750/50 bg-dark-950/10 flex flex-wrap gap-2">
+        <div className="px-4 py-2 border-t border-white/[0.06] bg-white/[0.01] flex flex-wrap gap-2">
           {sampleQuestions.map((q, idx) => (
             <button
               key={idx}
               type="button"
               onClick={(e) => handleSendMessage(e, q)}
-              className="bg-dark-800 hover:bg-dark-750 text-[10px] text-slate-400 hover:text-slate-200 border border-dark-700 rounded-full px-3 py-1 font-mono transition-all flex items-center gap-1"
+              className="bg-white/[0.03] hover:bg-white/5 text-[10px] text-zinc-500 hover:text-zinc-300 border border-white/[0.06] rounded-full px-3 py-1 font-mono transition-all flex items-center gap-1"
             >
               <HelpCircle size={10} />
               {q}
@@ -305,17 +305,17 @@ export const AIAssistant: React.FC = () => {
         </div>
 
         {/* Input Form */}
-        <form onSubmit={handleSendMessage} className="p-3 bg-dark-950 border-t border-dark-750 flex gap-2">
+        <form onSubmit={handleSendMessage} className="p-3 bg-white/[0.02] border-t border-white/[0.06] flex gap-2">
           <input
             type="text"
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
             placeholder="Ask Aether diagnostic questions (e.g. Why did this build run fail?)..."
-            className="flex-1 bg-dark-900 border border-dark-750 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-sans"
+            className="flex-1 bg-black/30 border border-white/[0.06] text-zinc-100 placeholder-zinc-600 focus:border-white/20 focus:outline-none rounded-md px-3 py-2 text-xs font-sans"
           />
           <button
             type="submit"
-            className="bg-brand-600 hover:bg-brand-500 text-white font-bold p-2.5 rounded-lg transition-all shadow-md shadow-brand-600/10"
+            className="bg-white text-black hover:bg-zinc-200 font-medium p-2.5 rounded-lg transition-all"
           >
             <Send size={14} />
           </button>

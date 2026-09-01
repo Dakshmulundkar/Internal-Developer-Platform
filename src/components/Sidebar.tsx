@@ -27,7 +27,7 @@ export const Sidebar: React.FC = () => {
     { id: 'ai-assistant',     label: 'AI Assistant',       icon: Bot },
     { id: 'integrations',     label: 'Integrations',       icon: Puzzle,
       badge: installedPluginsCount > 0 ? installedPluginsCount : undefined,
-      badgeColor: 'bg-brand-600 text-white' },
+      badgeColor: 'bg-zinc-600 text-white' },
     { id: 'notifications',    label: 'Notifications',      icon: Bell,
       badge: unreadNotificationsCount > 0 ? unreadNotificationsCount : undefined,
       badgeColor: 'bg-blue-500 text-white' },
@@ -35,20 +35,20 @@ export const Sidebar: React.FC = () => {
   ];
 
   return (
-    <aside className="w-64 bg-dark-900 border-r border-dark-700 flex flex-col h-screen shrink-0">
+    <aside className="w-56 bg-[#050505] border-r border-white/[0.06] flex flex-col h-screen shrink-0 glass">
       {/* Brand */}
-      <div className="p-5 border-b border-dark-700 flex items-center gap-3">
-        <div className="bg-brand-600 p-2 rounded-lg text-white glow-info">
-          <Terminal size={20} />
+      <div className="p-5 border-b border-white/[0.06] flex items-center gap-3">
+        <div className="w-8 h-8 bg-white/5 border border-white/10 rounded-lg flex items-center justify-center text-white">
+          <Terminal size={16} />
         </div>
         <div>
-          <h1 className="font-semibold text-sm tracking-wide text-white">AETHER IDP</h1>
-          <p className="text-[10px] text-slate-400 font-mono">Control Plane v2.0.0</p>
+          <h1 className="text-sm font-semibold text-white">AETHER IDP</h1>
+          <p className="text-[10px] text-zinc-500 font-mono">Control Plane v2.0.0</p>
         </div>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         {menuItems.map((item) => {
           const Icon = item.icon;
           const isActive =
@@ -59,13 +59,13 @@ export const Sidebar: React.FC = () => {
 
           return (
             <button key={item.id} onClick={() => navigateTo(item.id as any)}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-all duration-200 group ${
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-all duration-150 group ${
                 isActive
-                  ? 'bg-brand-600 text-white shadow-md shadow-brand-600/10'
-                  : 'text-slate-400 hover:bg-dark-800 hover:text-slate-100'
+                  ? 'bg-white/5 ring-1 ring-white/5 text-zinc-100'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.03]'
               }`}>
               <div className="flex items-center gap-3">
-                <Icon size={16} className={isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'} />
+                <Icon size={15} className={isActive ? 'text-zinc-100' : 'text-zinc-500 group-hover:text-zinc-300'} />
                 <span>{item.label}</span>
               </div>
               {item.badge !== undefined && (
@@ -79,10 +79,10 @@ export const Sidebar: React.FC = () => {
       </nav>
 
       {/* Sign out */}
-      <div className="p-4 border-t border-dark-700">
+      <div className="p-4 border-t border-white/[0.06]">
         <button onClick={logoutUser}
-          className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-400 hover:bg-dark-800 hover:text-rose-400 rounded-lg transition-all">
-          <LogOut size={16} />
+          className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-zinc-400 hover:bg-white/[0.03] hover:text-rose-400 rounded-md transition-all">
+          <LogOut size={15} />
           <span>Sign Out</span>
         </button>
       </div>
