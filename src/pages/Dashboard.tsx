@@ -11,7 +11,7 @@ import {
 
 export const Dashboard: React.FC = () => {
   const { 
-    projects, deployments, incidents, rollbackOperations, 
+    projects, deployments, incidents,
     auditLogs, navigateTo, pluginInstallations, monitoringAlerts
   } = usePlatform();
 
