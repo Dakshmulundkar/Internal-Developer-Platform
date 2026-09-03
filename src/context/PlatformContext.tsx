@@ -74,6 +74,9 @@ interface PlatformContextProps {
   uninstallPlugin: (installationId: string) => void;
   updatePluginConfig: (installationId: string, config: Partial<PluginInstallation>) => void;
   
+  // Incident Update
+  updateIncident: (incidentId: string, updates: Partial<Incident>) => void;
+
   // Webhook Simulator
   triggerWebhookSimulation: (projectId: string, forceStatus?: DeploymentStatus) => void;
 }
@@ -856,6 +859,22 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, 5000);
   };
 
+  const updateIncident = (incidentId: string, updates: Partial<Incident>) => {
+    setIncidents(prev => prev.map(i => i.id === incidentId ? { ...i, ...updates } : i));
+
+    if (user) {
+      const newAudit: AuditLog = {
+        id: 'a_' + Math.random().toString(36).substr(2, 9),
+        userId: user.id,
+        userName: user.name,
+        action: 'INCIDENT_UPDATE',
+        details: `Updated incident ${incidentId} with fields: ${Object.keys(updates).join(', ')}.`,
+        createdAt: new Date().toISOString()
+      };
+      setAuditLogs(prev => [newAudit, ...prev]);
+    }
+  };
+
   // Plugin Actions
   const installPlugin = (pluginId: string) => {
     if (!user) return;
@@ -980,6 +999,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       startRollback,
       addComment,
       resolveIncident,
+      updateIncident,
       markNotificationAsRead,
       markAllNotificationsRead,
       installPlugin,

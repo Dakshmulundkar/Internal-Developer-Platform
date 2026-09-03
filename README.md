@@ -1,147 +1,342 @@
-# Internal Developer Platform (IDP) for Self-Service Delivery and Recovery
+# Aether IDP — Internal Developer Platform for Self-Service Delivery and Recovery
 
-A professional, centralized control-plane web platform for software teams to manage, monitor, and recover applications deployed on external hosting providers (**Vercel** and **Netlify**).
-
----
-
-> [!IMPORTANT]
-> **100% Free Tier & Zero Paid API Guarantee**: This platform is engineered to operate exclusively on free-tier APIs and local client-side engines. It requires **zero paid subscriptions, zero paid database instances, and zero paid OpenAI/LLM tokens**.
-> - **Free Cloud APIs**: Integrates with Vercel's Free Hobby Tier REST API, Netlify's Free Starter Tier REST API, and GitHub's Free REST API.
-> - **Free In-House AI Engine**: Aether AI failure diagnosis and incident analysis run 100% locally using structured contextual heuristics—no paid OpenAI, Anthropic, or external API keys required.
-> - **Free Storage & Zero Hosting Cost**: Platform state and audit logs persist locally using standard Web Storage APIs (`LocalStorage`).
+A professional, centralized control-plane web platform for software teams to manage, monitor, and recover applications deployed on external hosting providers. Built as a final-year engineering project by **Daksh Mulundkar**.
 
 ---
 
-## 1. Project Overview
+## Project Title
 
-Modern engineering teams often deploy web applications across multiple external cloud hosting platforms (such as Vercel and Netlify). Managing these disconnected deployments requires checking several dashboards, setting up manual build notifications, and manually diagnosing failures when builds break.
+**Design and Implementation of an Internal Developer Platform for Self-Service Delivery and Recovery**
+
+---
+
+## 1. Overview
+
+Modern engineering teams deploy web applications across multiple external cloud platforms such as Vercel and Netlify. Managing these disconnected deployments requires checking several dashboards, configuring projects manually, and diagnosing failures without a common workflow.
 
 This Internal Developer Platform (IDP) acts as a **centralized management and operational recovery layer**:
-- **Control Plane Architecture**: The platform does **not** host or replace user applications. Your code continues running on Vercel or Netlify.
-- **Self-Service Onboarding**: Enables developers to register GitHub repositories, configure target environments (`production`, `staging`, `preview`), and hook build pipelines in a guided 6-step wizard.
-- **Unified Health Monitoring**: Consolidates build statuses, deployment logs, provider gateway latencies, and incident tickets into a single dark-themed dashboard.
-- **Automated Incident Ticketing**: Automatically opens incident tickets when a build or deployment pipeline fails.
-- **Aether AI Diagnosis**: Evaluates error messages and build stage logs to provide confidence scores, root cause breakdowns, and suggested troubleshooting steps.
-- **Controlled Rollback & Recovery**: Enables operators to restore previous stable deployment versions via API with interactive confirmation modals and full audit log retention.
+
+- **Control Plane Architecture** — The platform does not host or replace user applications. Code continues running on Vercel or Netlify.
+- **Plugin-Based Integration Model** — External tools (Grafana, Datadog, Sentry) connect through plugins. Each plugin normalizes provider-specific events into a common internal format.
+- **Self-Service Onboarding** — Developers register GitHub repositories, configure environments, and hook build pipelines in a guided multi-step wizard.
+- **Unified Health Monitoring** — Consolidates deployment statuses, build logs, monitoring alerts, and incident tickets into a single dark-themed dashboard.
+- **Automated Incident Management** — Incidents are opened automatically when deployments fail or monitoring alerts fire. Each incident has a full detail view with tabs for Overview, Locations, Feedback, and Activity.
+- **Aether AI Diagnosis** — Evaluates error messages, build logs, and alert context to generate confidence scores, root cause breakdowns, and AI-generated remediation checklists.
+- **Controlled Rollback & Recovery** — Operators restore previous stable deployment versions via the provider API with confirmation modals and full audit trail retention.
+- **GitOps Deployment via ArgoCD** — The backend is deployed to Kubernetes using ArgoCD, which continuously syncs the cluster state from the Git repository.
 
 ---
 
-## 2. Data Fetching & Event Collection Architecture
+## 2. Architecture
 
-The platform provides a dual-mode data integration architecture supporting both **Live API Data Collection** and **Demonstration Seed Data Fallback**:
+### Frontend ↔ Backend ↔ Providers
 
 ```
-+-----------------------------------------------------------------------+
-|                       IDP Web Control Plane                           |
-|                      (React + TypeScript + Vite)                      |
-+-----------------------------------+-----------------------------------+
-                                    |
-          +-------------------------+-------------------------+
-          |                                                   |
-          v                                                   v
-+-------------------------------+           +-------------------------------+
-|  Live REST API & Webhook Mode |           | Demonstration / Seed Data Mode|
-|  (Token Authenticated)        |           | (Offline / Offline Demo)      |
-+---------------+---------------+           +---------------+---------------+
-                |                                           |
-  +-------------+-------------+             +---------------+---------------+
-  |                           |             | Seed Data Engines             |
-  v                           v             |  - 5 Onboarded Projects       |
-+-------------------+   +-----------------+ |  - Multi-stage Build Logs     |
-| Vercel REST API   |   | Netlify REST API| |  - Incident History Logs      |
-| GET /v6/deployments|  | GET /api/v1/    | |  - Rollback Audit Trails      |
-| POST /v9/alias    |   | POST /restore   | +-------------------------------+
-+-------------------+   +-----------------+
+┌─────────────────────────────────────────────┐
+│  Aether IDP Web Portal                       │
+│  React 18 + TypeScript + Vite + Tailwind CSS │
+│  Deployed: Vercel / Netlify                  │
+└───────────────────┬─────────────────────────┘
+                    │ REST + WebSocket
+┌───────────────────▼─────────────────────────┐
+│  FastAPI Backend (Python 3.11)               │
+│  Deployed: Kubernetes via ArgoCD (GitOps)    │
+└────┬──────────────┬──────────────────────────┘
+     │              │
+     ▼              ▼
+Supabase         External Provider APIs
+PostgreSQL       ├── Vercel REST API (v6/v9)
+Auth + Storage   ├── Netlify REST API (v1)
+                 ├── GitHub API (v3)
+                 ├── Grafana HTTP API
+                 ├── Datadog API (v1/v2)
+                 ├── Sentry API
+                 └── LLM API (OpenAI / Groq)
 ```
 
-### Live Provider Integration (`src/services/providerApi.ts`)
+### GitOps Delivery Pipeline (ArgoCD)
 
-When users configure access tokens (e.g. Vercel Personal Access Tokens `vcl_...` or Netlify Access Tokens `nf_...`):
+```
+Developer pushes to main
+        │
+        ▼
+GitHub Actions CI
+  1. Build Docker image (multi-stage)
+  2. Push to GHCR tagged with Git SHA
+  3. Update k8s/overlays/production/kustomization.yaml
+  4. Commit manifest change
+        │
+        ▼
+ArgoCD detects manifest change
+  → Syncs new image to Kubernetes cluster
+  → selfHeal corrects any manual drift
+  → 3 environments: idp-dev / idp-staging / idp-production
+```
 
-1. **Deployment Event Fetching**:
-   - **Vercel API**: Calls `GET https://api.vercel.com/v6/deployments` with `Authorization: Bearer <token>` to collect deployment IDs, GitHub commit SHAs, commit messages, branch names, deploy states (`BUILDING`, `READY`, `ERROR`), and edge routing URLs.
-   - **Netlify API**: Calls `GET https://api.netlify.com/api/v1/sites/{site_id}/deploys` to fetch deploy histories, build durations, committer details, and raw compilation error messages.
+### Plugin Data Flow
 
-2. **API-Driven Rollback Execution**:
-   - **Vercel Alias Re-routing**: Calls `POST https://api.vercel.com/v9/projects/{projectId}/alias` to point active domain traffic to a targeted stable deployment version.
-   - **Netlify Deploy Restore**: Calls `POST https://api.netlify.com/api/v1/sites/{site_id}/deploys/{deploy_id}/restore` to re-activate a previous release version.
+```
+External Provider API / Webhook
+              │
+              ▼
+      Plugin Adapter (per provider)
+              │
+              ▼
+      Event Normalizer
+              │
+              ▼
+      Core IDP Services
+    ┌────┬────┬──────┬──────────┐
+    ▼    ▼    ▼      ▼          ▼
+Dashboard Alerts Incidents AI Context Rollback
+```
 
-3. **Webhook Listener Simulation**:
-   - Real-time status changes and build transitions (`queued` $\rightarrow$ `building` $\rightarrow$ `ready` / `failed`) are published to the `PlatformContext` event stream, updating dashboard counts and notification feeds.
+### Demo / Offline Mode
 
-### Fallback Demonstration Mode
-
-If external API credentials are omitted or offline, the platform seamlessly loads realistic mock seed data ([`src/data/seedData.ts`](file:///c:/Users/Sejal/Downloads/major/src/data/seedData.ts)) representing 5 diverse projects, multi-stage build logs, open incidents, and historical rollback operations—ensuring friction-free university project evaluations and offline demonstrations.
+When no backend is configured (`VITE_API_URL` not set), the platform loads realistic seed data from `src/data/seedData.ts` — 5 projects, multi-stage build logs, open incidents, rollback history — ensuring the platform is fully demonstrable offline.
 
 ---
 
-## 3. Core Modules & User Interface
+## 3. Pages & Modules
 
-| Page / Module | File Path | Core Functionality |
-| :--- | :--- | :--- |
-| **Login & Auth** | [`Login.tsx`](file:///c:/Users/Sejal/Downloads/major/src/pages/Login.tsx) | Email/password sign-in, GitHub & Google OAuth simulation, dark technical design. |
-| **Dashboard** | [`Dashboard.tsx`](file:///c:/Users/Sejal/Downloads/major/src/pages/Dashboard.tsx) | High-level metrics, Recharts deployment success area charts, incident trend line charts, cloud provider health status. |
-| **Service Catalog** | [`Projects.tsx`](file:///c:/Users/Sejal/Downloads/major/src/pages/Projects.tsx) | Grid of registered services with provider tags, active status badges, search and filter options. |
-| **Create Project Wizard** | [`CreateProjectWizard.tsx`](file:///c:/Users/Sejal/Downloads/major/src/pages/CreateProjectWizard.tsx) | 6-step onboarding wizard for project metadata, GitHub repo, hosting provider selection, target branch, credential verification. |
-| **Project Control Panel** | [`ProjectDetails.tsx`](file:///c:/Users/Sejal/Downloads/major/src/pages/ProjectDetails.tsx) | Comprehensive project overview, live deployment URLs, quick-action rollback triggers, and AI diagnostic shortcuts. |
-| **Deployments History** | [`Deployments.tsx`](file:///c:/Users/Sejal/Downloads/major/src/pages/Deployments.tsx) | Timeline of pipeline runs with commit details, branch, duration, and status indicators. |
-| **Deployment Details** | [`DeploymentDetails.tsx`](file:///c:/Users/Sejal/Downloads/major/src/pages/DeploymentDetails.tsx) | Build stage progression, raw exception stack output, dark terminal console logs, Aether AI cause analysis, quick rollback confirmation modal. |
-| **Incidents & Ticketing** | [`Incidents.tsx`](file:///c:/Users/Sejal/Downloads/major/src/pages/Incidents.tsx) | Actionable incident queue categorized by severity (`Critical`, `High`, `Medium`, `Low`), comment threads, resolution actions. |
-| **Rollback & Recovery** | [`RollbackRecovery.tsx`](file:///c:/Users/Sejal/Downloads/major/src/pages/RollbackRecovery.tsx) | Controlled release restoration workflow, target selection, confirmation prompts, safety warning banners, audit history. |
-| **Aether AI Assistant** | [`AIAssistant.tsx`](file:///c:/Users/Sejal/Downloads/major/src/pages/AIAssistant.tsx) | Contextual failure diagnosis chat interface, confidence scores, root cause identification, suggested recovery paths. |
-| **Notifications Center** | [`Notifications.tsx`](file:///c:/Users/Sejal/Downloads/major/src/pages/Notifications.tsx) | Real-time alert feed for failed builds, new incidents, and completed rollbacks with read/unread tracking. |
-| **System Settings** | [`Settings.tsx`](file:///c:/Users/Sejal/Downloads/major/src/pages/Settings.tsx) | User profile settings, provider connection keys, security preferences, session management. |
+| Page | File | Description |
+|------|------|-------------|
+| Login & Auth | `Login.tsx` | Email/password, GitHub OAuth, Google OAuth. Demo mode accepts any credentials. |
+| Dashboard | `Dashboard.tsx` | 6 metric cards, deployment success chart, incident trend, monitoring alert trend, 5-provider health panel, audit trail. |
+| Projects | `Projects.tsx` | Service catalog with plugin badges, status indicators, search and filter. |
+| Create Project Wizard | `CreateProjectWizard.tsx` | 6-step guided onboarding: metadata → repo → provider → branch → credentials → review. |
+| Project Details | `ProjectDetails.tsx` | Deployment history, incident alerts, rollback and AI diagnosis shortcuts. |
+| Deployments | `Deployments.tsx` | Full deployment timeline table with status badges, commit info, filtering. |
+| Deployment Details | `DeploymentDetails.tsx` | Build stage progression, terminal logs, AI root cause analysis, rollback modal. |
+| Incidents | `Incidents.tsx` | GitGuardian-style list with tab filters, split detail view with 4 tabs (Overview / Locations / Feedback / Activity), AI remediation checklist in right sidebar. |
+| Rollback & Recovery | `RollbackRecovery.tsx` | Controlled rollback workflow, target version selection, live audit log, confirmation step. |
+| AI Assistant | `AIAssistant.tsx` | Chat-style diagnosis interface, context selector, confidence scores, root cause breakdown. |
+| Monitoring | `Monitoring.tsx` | Unified alert view (Grafana / Datadog / Sentry), Sentry issues tab with stack traces. |
+| Integrations | `Integrations.tsx` | Plugin marketplace — install, configure, test, and remove plugins. |
+| Plugin Config | `PluginConfig.tsx` | API key (masked), base URL, webhook URL display, connection test, enabled-for-projects. |
+| Notifications | `Notifications.tsx` | Full alert feed, read/unread tracking, click-through to related incident or deployment. |
+| Settings | `Settings.tsx` | Provider connections, Grafana/Datadog/Sentry plugin status, notification preferences, user profile. |
 
 ---
 
 ## 4. Technology Stack
 
-- **Frontend Core**: React 18, TypeScript 5, Vite 5
-- **Styling & UI**: Vanilla CSS Design Tokens, Tailwind CSS, Lucide React Icons
-- **Data Visualization**: Recharts (Deployment Success Area Charts & Incident Trend Line Charts)
-- **API Services**: `providerApi.ts` (Vercel REST API v6/v9, Netlify REST API v1)
-- **State Management**: React Context API (`PlatformContext.tsx`) with LocalStorage persistence
+### Frontend
+| Technology | Purpose |
+|-----------|---------|
+| React 18 | UI framework |
+| TypeScript 5 | Type safety |
+| Vite 8 | Build tool and dev server |
+| Tailwind CSS 3 | Utility-first styling |
+| Lucide React | Icon library |
+| Recharts | Deployment success, incident trend, monitoring alert charts |
+| React Context API | Global state + localStorage persistence |
+
+### Backend (Phase 2)
+| Technology | Purpose |
+|-----------|---------|
+| Python 3.11 | Backend language |
+| FastAPI | REST API framework |
+| Pydantic | Data validation and schemas |
+| Supabase | PostgreSQL database + Auth + Storage |
+| Supabase Vault | Encrypted API key storage |
+| WebSockets | Real-time event push to frontend |
+
+### Infrastructure & DevOps
+| Technology | Purpose |
+|-----------|---------|
+| Docker | Multi-stage image build for backend |
+| Kubernetes | Container orchestration |
+| ArgoCD | GitOps continuous delivery — syncs `k8s/` manifests to cluster |
+| Kustomize | Environment overlays (dev / staging / production) |
+| GitHub Actions | CI/CD — build, push image, update manifests |
+| GitHub Container Registry | Docker image storage |
+
+### External Integrations
+| Integration | API Used |
+|------------|---------|
+| Vercel | REST API v6/v9 — deployments, rollback alias |
+| Netlify | REST API v1 — deploys, restore |
+| GitHub | REST API v3 — repos, commits, webhooks |
+| Grafana | HTTP API — alerts, dashboards |
+| Datadog | API v1/v2 — monitors, events |
+| Sentry | REST API — issues, releases, stack traces |
+| LLM | OpenAI GPT-4o-mini / Groq Llama3 — AI analysis |
 
 ---
 
-## 5. Getting Started & Running Locally
+## 5. Repository Structure
 
-### Prerequisites
-- Node.js (v18+)
-- npm or pnpm
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/your-username/internal-developer-platform.git
-cd internal-developer-platform
-
-# Install dependencies
-npm install
+```
+.
+├── src/                          # React frontend
+│   ├── components/               # Header, Sidebar
+│   ├── context/                  # PlatformContext (global state)
+│   ├── data/                     # seedData.ts (demo/offline mode)
+│   ├── pages/                    # All 15 pages
+│   ├── services/                 # providerApi.ts, api.ts (Phase 2)
+│   └── types/                    # TypeScript types
+├── public/                       # Static assets
+├── backend/                      # FastAPI backend (Phase 2)
+│   ├── main.py
+│   ├── routers/                  # auth, projects, deployments, incidents, rollback, ai, plugins
+│   ├── services/                 # vercel, netlify, grafana, datadog, sentry, ai
+│   ├── webhooks/                 # webhook receivers per provider
+│   ├── background/               # plugin sync, incident monitor
+│   ├── middleware/               # auth, rate limiter
+│   └── Dockerfile                # Multi-stage build
+├── k8s/                          # Kubernetes manifests (ArgoCD watches this)
+│   ├── base/                     # deployment, service, configmap, ingress, hpa
+│   └── overlays/                 # dev / staging / production
+├── argocd/                       # ArgoCD Application manifests
+│   ├── application-dev.yaml
+│   ├── application-staging.yaml
+│   └── application-production.yaml
+├── .github/
+│   └── workflows/
+│       └── build-push.yml        # CI: build Docker image → push → update manifest
+├── .kiro/specs/incidents-redesign/ # Feature spec (requirements, design, tasks)
+├── description.md                # Full project specification
+└── README.md
 ```
 
-### Running the Development Server
+---
+
+## 6. Getting Started (Frontend / Demo Mode)
+
+### Prerequisites
+- Node.js v18+
+- npm
+
+### Install and Run
 
 ```bash
-# Launch the Vite development server
+git clone https://github.com/Dakshmulundkar/Internal-Developer-Platform.git
+cd Internal-Developer-Platform
+npm install
 npm run dev
 ```
 
-Open your browser and navigate to `http://localhost:5173/`.
+Open `http://localhost:5173/` — the platform loads in demo mode with seed data. No backend required.
 
-### Building for Production
+### Login (Demo Mode)
+- Enter any email and a password of 6+ characters, or click the GitHub / Google OAuth buttons.
+- All data is stored in `localStorage` and populated from `src/data/seedData.ts`.
+
+### Build for Production
 
 ```bash
-# Perform TypeScript type-checks and compile production bundle
 npm run build
 ```
 
 ---
 
-## 6. Verification & Evaluation Metrics
+## 7. Getting Started (Full Stack with Backend)
 
-- **Type Safety**: Verified using `tsc --noEmit` (**0 compilation errors**).
-- **Bundle Build**: Compiled using `vite build` (**2284 modules transformed, 6.4s build time**).
-- **Onboarding Latency**: Project onboarding wizard completes under 10 seconds.
-- **Recovery Auditing**: 100% of rollback operations append immutable audit records to the platform log.
+### Prerequisites
+- Docker
+- A Kubernetes cluster (local: [kind](https://kind.sigs.k8s.io/) or [minikube](https://minikube.sigs.k8s.io/))
+- ArgoCD installed in the cluster
+- A Supabase project
+
+### Backend Environment Variables
+
+Copy `.env.example` to `backend/.env` and fill in:
+
+```
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_KEY=eyJ...
+OPENAI_API_KEY=sk-...          # or GROQ_API_KEY for free tier
+VERCEL_WEBHOOK_SECRET=whsec_...
+NETLIFY_WEBHOOK_SECRET=whsec_...
+CORS_ORIGINS=http://localhost:5173,https://your-frontend.vercel.app
+```
+
+### Run Backend Locally
+
+```bash
+cd backend
+pip install -e .
+uvicorn main:app --reload
+```
+
+### Deploy Backend via ArgoCD
+
+1. Build and push the Docker image:
+```bash
+docker build -t ghcr.io/dakshmulundkar/idp-backend:latest ./backend
+docker push ghcr.io/dakshmulundkar/idp-backend:latest
+```
+
+2. Create Kubernetes secrets (never committed to Git):
+```bash
+kubectl create secret generic idp-secrets \
+  --from-literal=SUPABASE_URL=... \
+  --from-literal=SUPABASE_KEY=... \
+  --from-literal=OPENAI_API_KEY=... \
+  -n idp-production
+```
+
+3. Register ArgoCD applications:
+```bash
+kubectl apply -f argocd/ -n argocd
+```
+
+4. ArgoCD automatically syncs and deploys. Access the UI:
+```bash
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+```
+
+### Connect Frontend to Backend
+
+Set environment variables in your Vercel/Netlify dashboard:
+```
+VITE_API_URL=https://api.your-cluster.com
+VITE_WS_URL=wss://api.your-cluster.com
+```
+
+When `VITE_API_URL` is not set, the frontend automatically falls back to demo/seed data mode.
+
+---
+
+## 8. Incidents Page — Redesigned (Upcoming)
+
+The incidents page is being redesigned to match a professional incident management tool (spec in `.kiro/specs/incidents-redesign/`):
+
+- **List view** — full-width table with tab filters (Open / All / Critical / Investigating / Resolved), filter chips, source plugin badges per row
+- **Split detail view** — left panel with 4 tabs (Overview / Locations / Feedback / Activity) + persistent right sidebar
+- **Right sidebar** — Resolve ▾ and Ignore ▾ dropdown actions, details key-value list, AI-generated "How to remediate" checklist, always-last "You can mark the incident as resolved" link
+- **Activity tab** — merged timeline + comments feed with relative timestamps and event type icons
+- **Feedback tab** — real/false-positive toggle + comment textarea
+
+---
+
+## 9. Roadmap
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| Phase 1 — Frontend UI | ✅ Complete | All 15 pages, plugin system, monitoring, dark theme, demo mode |
+| Incidents Redesign | 🔄 Planned | GitGuardian-style incident detail view (see spec) |
+| Phase 2 — Backend | 📋 Spec Ready | FastAPI + Supabase — real auth, deployments, incidents, webhooks |
+| Phase 2 — AI | 📋 Spec Ready | Real LLM API for incident analysis and remediation steps |
+| Phase 2 — Plugins | 📋 Spec Ready | Live Grafana, Datadog, Sentry data sync |
+| Phase 2 — ArgoCD | 📋 Spec Ready | K8s manifests + ArgoCD applications + GitHub Actions CI |
+
+---
+
+## 10. Evaluation Metrics
+
+- **Type Safety** — `tsc --noEmit` passes with 0 errors
+- **Onboarding Latency** — Project wizard completes in under 10 seconds
+- **Recovery Auditing** — 100% of rollback operations create immutable audit records
+- **Demo Mode** — Platform is fully functional offline with no external dependencies
+- **GitOps Compliance** — All backend infrastructure changes tracked and deployed through Git via ArgoCD
+
+---
+
+## 11. Author
+
+**Daksh Mulundkar**
+GitHub: [@Dakshmulundkar](https://github.com/Dakshmulundkar)
+
+Final-year engineering project — Internal Developer Platform for Self-Service Delivery and Recovery.

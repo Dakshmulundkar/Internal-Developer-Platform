@@ -90,6 +90,9 @@ export interface Incident {
     timestamp: string;
     type: 'alert' | 'comment' | 'action' | 'status_change';
   }[];
+  ignoredReason?: string;
+  feedbackIsReal?: boolean;
+  feedbackComment?: string;
 }
 
 export interface RollbackOperation {

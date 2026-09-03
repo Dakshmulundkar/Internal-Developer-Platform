@@ -308,11 +308,14 @@ Option: px-4 py-2.5 text-xs text-zinc-300 hover:bg-white/[0.03] hover:text-white
 ### Stack
 ```
 Frontend (React + Vite)
-       ↕ REST + WebSocket
+  │  deployed on Vercel / Netlify
+  ↕ REST + WebSocket
 FastAPI Backend (Python 3.11+)
-       ↕
+  │  containerized via Docker
+  │  deployed to Kubernetes via ArgoCD (GitOps)
+  ↕
 Supabase PostgreSQL (database + auth + storage)
-       ↕
+  ↕
 External APIs:
   - Vercel REST API (v6/v9)
   - Netlify REST API (v1)
@@ -320,7 +323,155 @@ External APIs:
   - Grafana HTTP API
   - Datadog API (v1/v2)
   - Sentry API
-  - LLM API (OpenAI GPT-4o / Groq free tier)
+  - LLM API (OpenAI GPT-4o-mini / Groq free tier)
+```
+
+### ArgoCD GitOps Deployment Model
+```
+Developer pushes code
+        │
+        ▼
+GitHub Repository
+  ├── backend/          ← FastAPI source code
+  ├── k8s/              ← Kubernetes manifests (ArgoCD watches this)
+  │   ├── base/
+  │   │   ├── deployment.yaml
+  │   │   ├── service.yaml
+  │   │   ├── configmap.yaml
+  │   │   └── ingress.yaml
+  │   └── overlays/
+  │       ├── dev/
+  │       ├── staging/
+  │       └── production/
+  └── .github/
+      └── workflows/
+          └── build-push.yml   ← builds Docker image, pushes to registry
+                │
+                ▼
+        Container Registry
+        (Docker Hub / GHCR)
+                │
+                ▼
+         ArgoCD watches k8s/overlays/{env}
+                │
+                ▼
+       Kubernetes Cluster
+       ├── namespace: idp-dev
+       ├── namespace: idp-staging
+       └── namespace: idp-production
+           ├── Deployment (FastAPI backend pods)
+           ├── Service (ClusterIP + LoadBalancer/Ingress)
+           ├── ConfigMap (non-secret config)
+           └── Secret (from Kubernetes Secrets / Vault)
+```
+
+### Kubernetes Manifest Structure
+```
+k8s/
+├── base/
+│   ├── deployment.yaml          # FastAPI deployment, 2 replicas
+│   ├── service.yaml             # ClusterIP service on port 8000
+│   ├── configmap.yaml           # Non-sensitive env vars (CORS origins, log level)
+│   ├── ingress.yaml             # Nginx ingress with TLS
+│   └── hpa.yaml                 # HorizontalPodAutoscaler (min 2, max 6)
+└── overlays/
+    ├── dev/
+    │   ├── kustomization.yaml
+    │   └── patch-replicas.yaml  # 1 replica for dev
+    ├── staging/
+    │   ├── kustomization.yaml
+    │   └── patch-env.yaml       # staging Supabase URL
+    └── production/
+        ├── kustomization.yaml
+        └── patch-replicas.yaml  # 3 replicas for production
+```
+
+### ArgoCD Application Manifest (per environment)
+```yaml
+# argocd/application-production.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: idp-backend-production
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Dakshmulundkar/Internal-Developer-Platform
+    targetRevision: main
+    path: k8s/overlays/production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: idp-production
+  syncPolicy:
+    automated:
+      prune: true        # Remove resources deleted from Git
+      selfHeal: true     # Correct any manual drift automatically
+    syncOptions:
+      - CreateNamespace=true
+```
+
+### CI/CD Pipeline (GitHub Actions → ArgoCD)
+```yaml
+# .github/workflows/build-push.yml
+# Trigger: push to main branch
+# Steps:
+# 1. Build Docker image: docker build -t ghcr.io/dakshmulundkar/idp-backend:{sha}
+# 2. Push to GitHub Container Registry
+# 3. Update k8s/overlays/production/kustomization.yaml with new image tag
+# 4. Commit and push the manifest update
+# 5. ArgoCD detects the change and automatically syncs the new image to the cluster
+
+# Image tag strategy: use Git SHA (short) for immutability
+# e.g. ghcr.io/dakshmulundkar/idp-backend:a1b2c3d
+```
+
+### Kubernetes Deployment Spec (base)
+```yaml
+# k8s/base/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: idp-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: idp-backend
+  template:
+    metadata:
+      labels:
+        app: idp-backend
+    spec:
+      containers:
+        - name: idp-backend
+          image: ghcr.io/dakshmulundkar/idp-backend:latest  # overridden by kustomize
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: idp-config
+            - secretRef:
+                name: idp-secrets       # Supabase keys, webhook secrets, LLM keys
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
 ```
 
 ### Backend Folder Structure
@@ -349,15 +500,15 @@ backend/
 │   ├── audit.py              # /audit/*
 │   └── ai.py                 # /ai/*
 ├── services/                  # Business logic
-│   ├── vercel_service.py     # Vercel API calls
-│   ├── netlify_service.py    # Netlify API calls
-│   ├── github_service.py     # GitHub API calls
-│   ├── grafana_service.py    # Grafana API calls
-│   ├── datadog_service.py    # Datadog API calls
-│   ├── sentry_service.py     # Sentry API calls
-│   ├── ai_service.py         # LLM integration
-│   ├── incident_service.py   # Incident auto-creation logic
-│   └── webhook_service.py    # Webhook validation + normalization
+│   ├── vercel_service.py
+│   ├── netlify_service.py
+│   ├── github_service.py
+│   ├── grafana_service.py
+│   ├── datadog_service.py
+│   ├── sentry_service.py
+│   ├── ai_service.py
+│   ├── incident_service.py
+│   └── webhook_service.py
 ├── webhooks/                  # Webhook receivers
 │   ├── vercel_webhook.py
 │   ├── netlify_webhook.py
@@ -365,11 +516,30 @@ backend/
 │   ├── datadog_webhook.py
 │   └── sentry_webhook.py
 ├── background/                # Background tasks
-│   ├── plugin_sync.py        # Periodic plugin data sync
-│   └── incident_monitor.py   # Auto-create incidents from alerts
-└── middleware/
-    ├── auth_middleware.py    # JWT validation
-    └── rate_limiter.py       # Rate limiting
+│   ├── plugin_sync.py
+│   └── incident_monitor.py
+├── middleware/
+│   ├── auth_middleware.py
+│   └── rate_limiter.py
+└── Dockerfile                 # Multi-stage build: builder + slim runtime
+```
+
+### Dockerfile (multi-stage)
+```dockerfile
+# Stage 1: builder
+FROM python:3.11-slim AS builder
+WORKDIR /app
+COPY pyproject.toml .
+RUN pip install --no-cache-dir build && pip install .
+
+# Stage 2: runtime
+FROM python:3.11-slim AS runtime
+WORKDIR /app
+COPY --from=builder /usr/local/lib/python3.11 /usr/local/lib/python3.11
+COPY . .
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s CMD curl -f http://localhost:8000/health || exit 1
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
 ```
 
 ### Supabase Database Schema

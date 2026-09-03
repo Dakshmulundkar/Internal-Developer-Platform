@@ -236,10 +236,12 @@ Notifications for: failed builds, failed deployments, new incidents, rollback co
 
 ### Development and Deployment
 - GitHub
-- GitHub Actions
-- Docker
+- GitHub Actions (CI/CD — builds Docker image, pushes to GHCR, updates Kubernetes manifests)
+- Docker (multi-stage image build for the FastAPI backend)
+- Kubernetes (container orchestration for backend services)
+- ArgoCD (GitOps continuous delivery — syncs `k8s/` manifests to the cluster automatically)
+- Kustomize (environment overlays for dev, staging, and production)
 - Vercel or Netlify for frontend hosting
-- Render or Railway for backend hosting (if required)
 - Supabase for database and authentication
 
 ## 8. Main Database Entities
@@ -799,11 +801,24 @@ Additional optional plugin:
 ### Development and Deployment
 
 - GitHub.
-- GitHub Actions.
-- Docker.
+- GitHub Actions (CI/CD pipeline — builds Docker image, pushes to GHCR, updates Kubernetes manifests).
+- Docker (multi-stage image build for the FastAPI backend).
+- Kubernetes (container orchestration for backend pods, services, and ingress).
+- ArgoCD (GitOps continuous delivery — monitors the `k8s/` directory in the repository and syncs changes to the cluster automatically).
+- Kustomize (environment overlays for dev, staging, and production namespaces).
 - Vercel or Netlify for frontend hosting.
-- Render or Railway for backend hosting, if required.
 - Supabase for database and authentication.
+
+### GitOps Deployment Model
+
+The backend is deployed using a GitOps workflow managed by ArgoCD:
+
+1. A developer pushes backend code to the `main` branch.
+2. GitHub Actions builds and pushes a Docker image tagged with the Git SHA to GitHub Container Registry.
+3. The CI pipeline updates the Kubernetes manifest in `k8s/overlays/production/` with the new image tag and commits the change.
+4. ArgoCD detects the manifest change and automatically syncs the new image to the Kubernetes cluster.
+5. ArgoCD's `selfHeal` policy corrects any manual drift from the desired state in Git.
+6. Each environment (dev, staging, production) is a separate ArgoCD Application targeting a different Kubernetes namespace and overlay.
 
 ## 8. Important Data Entities
 

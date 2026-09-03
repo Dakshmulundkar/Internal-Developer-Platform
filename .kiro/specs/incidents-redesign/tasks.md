@@ -6,7 +6,7 @@
 
 ## PHASE 1 — FRONTEND UI REDESIGN
 
-### Task 1: Update Incident type in platform.ts
+### ✅ Task 1: Update Incident type in platform.ts
 **File:** `src/types/platform.ts`
 **Changes:**
 - Add `ignoredReason?: string` — stores reason when incident is ignored
@@ -16,7 +16,7 @@
 
 ---
 
-### Task 2: Add updateIncident action to PlatformContext
+### ✅ Task 2: Add updateIncident action to PlatformContext
 **File:** `src/context/PlatformContext.tsx`
 **Changes:**
 - Add `updateIncident: (incidentId: string, updates: Partial<Incident>) => void` to context interface
@@ -26,7 +26,7 @@
 
 ---
 
-### Task 3: Add getRemediationSteps utility
+### ✅ Task 3: Add getRemediationSteps utility
 **File:** `src/pages/Incidents.tsx` (inline, top of file, outside component)
 **Logic:**
 ```ts
@@ -46,7 +46,7 @@ function getRemediationSteps(deploymentId?: string): RemediationStep[]
 
 ---
 
-### Task 4: Add relativeTime and openedFor helpers
+### ✅ Task 4: Add relativeTime and openedFor helpers
 **File:** `src/pages/Incidents.tsx` (inline)
 ```ts
 function relativeTime(timestamp: string): string
@@ -57,7 +57,7 @@ function openedFor(timestamp: string): string
 
 ---
 
-### Task 5: Rewrite Incidents.tsx — State + List View
+### ✅ Task 5: Rewrite Incidents.tsx — State + List View
 **File:** `src/pages/Incidents.tsx`
 
 **5a. New/changed state variables:**
@@ -118,7 +118,7 @@ const filteredIncidents = incidents.filter(inc => {
 
 ---
 
-### Task 6: Build Incident Detail — Shell + Tabs
+### ✅ Task 6: Build Incident Detail — Shell + Tabs
 **File:** `src/pages/Incidents.tsx`
 **Condition:** `selectedId !== null`
 
@@ -145,7 +145,7 @@ const filteredIncidents = incidents.filter(inc => {
 
 ---
 
-### Task 7: Overview Tab
+### ✅ Task 7: Overview Tab
 **When `activeTab === 'overview'`:**
 
 **7a. Incident Details card:**
@@ -170,7 +170,7 @@ const filteredIncidents = incidents.filter(inc => {
 
 ---
 
-### Task 8: Locations Tab
+### ✅ Task 8: Locations Tab
 **When `activeTab === 'locations'`:**
 
 **8a. Impacted Perimeter stats:**
@@ -189,7 +189,7 @@ const filteredIncidents = incidents.filter(inc => {
 
 ---
 
-### Task 9: Feedback Tab
+### ✅ Task 9: Feedback Tab
 **When `activeTab === 'feedback'`:**
 
 **9a. Is this real toggle:**
@@ -211,7 +211,7 @@ const filteredIncidents = incidents.filter(inc => {
 
 ---
 
-### Task 10: Activity Tab
+### ✅ Task 10: Activity Tab
 **When `activeTab === 'activity'`:**
 
 **10a. Filter buttons:**
@@ -233,7 +233,7 @@ const filteredIncidents = incidents.filter(inc => {
 
 ---
 
-### Task 11: Right Sidebar — Status, Resolve, Ignore
+### ✅ Task 11: Right Sidebar — Status, Resolve, Ignore
 **Always visible in detail view:**
 
 **11a. Status badge:**
@@ -267,7 +267,7 @@ useEffect(() => {
 
 ---
 
-### Task 12: Right Sidebar — Details Key-Value List
+### ✅ Task 12: Right Sidebar — Details Key-Value List
 **Below the action buttons:**
 
 Rows in order: Assignee | Occurred | Detected | Opened for | Severity | Provider | Tags | Developer
@@ -279,7 +279,7 @@ Rows in order: Assignee | Occurred | Detected | Opened for | Severity | Provider
 
 ---
 
-### Task 13: Right Sidebar — How to Remediate
+### ✅ Task 13: Right Sidebar — How to Remediate
 **Bottom of right sidebar:**
 
 - Title: "How to remediate" uppercase tracking-wider
@@ -289,23 +289,23 @@ Rows in order: Assignee | Occurred | Detected | Opened for | Severity | Provider
 
 ---
 
-### Task 14: Verify and test all interactions
+### ✅ Task 14: Verify and test all interactions
 **No code changes — verification only:**
-- [ ] List tabs filter correctly
-- [ ] Filter chips appear and are dismissible
-- [ ] Clicking a row opens detail view
-- [ ] Back button returns to list
-- [ ] All 4 tabs switch without losing sidebar state
-- [ ] Resolve dropdown closes on outside click
-- [ ] Ignore dropdown closes on outside click
-- [ ] Resolve via dropdown marks incident resolved and returns to list
-- [ ] Ignore via dropdown marks incident resolved with reason
-- [ ] Activity tab submit adds comment and shows in feed
-- [ ] Feedback tab submit records feedback
-- [ ] Remediation resolve link calls resolveIncident
-- [ ] Navigating here from another page with activeIncidentId opens correct incident
-- [ ] Dashboard incident count updates after resolving
-- [ ] No TypeScript errors in diagnostics
+- [x] List tabs filter correctly
+- [x] Filter chips appear and are dismissible
+- [x] Clicking a row opens detail view
+- [x] Back button returns to list
+- [x] All 4 tabs switch without losing sidebar state
+- [x] Resolve dropdown closes on outside click
+- [x] Ignore dropdown closes on outside click
+- [x] Resolve via dropdown marks incident resolved and returns to list
+- [x] Ignore via dropdown marks incident resolved with reason
+- [x] Activity tab submit adds comment and shows in feed
+- [x] Feedback tab submit records feedback
+- [x] Remediation resolve link calls resolveIncident
+- [x] Navigating here from another page with activeIncidentId opens correct incident
+- [x] Dashboard incident count updates after resolving
+- [x] No TypeScript errors in diagnostics
 
 ---
 
@@ -315,7 +315,7 @@ Rows in order: Assignee | Occurred | Detected | Opened for | Severity | Provider
 
 ---
 
-### Task 15: Set up FastAPI backend project
+### ⬜ Task 15: Set up FastAPI backend project
 **New folder:** `backend/`
 - Create `pyproject.toml` with FastAPI, uvicorn, supabase-py, httpx, python-dotenv dependencies
 - Create `main.py` with FastAPI app, CORS configured for frontend origin
@@ -520,30 +520,125 @@ Rows in order: Assignee | Occurred | Detected | Opened for | Severity | Provider
 
 ---
 
-### Task 35: Deployment — backend
-**New files:** `Dockerfile`, `docker-compose.yml`, `render.yaml`
-- Dockerfile for FastAPI backend (Python 3.11 slim)
-- render.yaml for one-click deploy to Render free tier
-- Configure CORS, HTTPS, environment variables in Render dashboard
-- Add health check endpoint: `GET /health` returns `{ status: "ok" }`
+### Task 35: Containerize backend with Docker
+**New files:** `backend/Dockerfile`, `backend/.dockerignore`
+- Multi-stage Dockerfile: stage 1 installs dependencies, stage 2 is slim runtime image
+- Base image: `python:3.11-slim`
+- Expose port 8000
+- Health check: `GET /health` endpoint
+- `.dockerignore`: exclude `__pycache__`, `.env`, `*.pyc`, `.git`
+- Test locally: `docker build -t idp-backend . && docker run -p 8000:8000 idp-backend`
+- Verify: `curl http://localhost:8000/health` returns `{ "status": "ok" }`
 
 ---
 
-### Task 36: Deployment — frontend
+### Task 36: Create Kubernetes manifests (Kustomize base)
+**New folder:** `k8s/base/`
+- `deployment.yaml` — FastAPI Deployment, 2 replicas, readiness + liveness probes, resource limits (100m/256Mi requests, 500m/512Mi limits), envFrom ConfigMap + Secret
+- `service.yaml` — ClusterIP Service on port 8000
+- `configmap.yaml` — non-secret env vars: CORS_ORIGINS, LOG_LEVEL, ENVIRONMENT
+- `ingress.yaml` — Nginx Ingress with TLS annotation for cert-manager
+- `hpa.yaml` — HorizontalPodAutoscaler: min 2, max 6 replicas, CPU target 70%
+- `kustomization.yaml` — lists all base resources
+
+---
+
+### Task 37: Create Kubernetes overlays (dev / staging / production)
+**New folders:** `k8s/overlays/dev/`, `k8s/overlays/staging/`, `k8s/overlays/production/`
+
+**dev overlay:**
+- `kustomization.yaml` — extends base, sets namespace `idp-dev`
+- `patch-replicas.yaml` — override replicas to 1
+- `patch-configmap.yaml` — set ENVIRONMENT=dev, point to dev Supabase project
+
+**staging overlay:**
+- `kustomization.yaml` — extends base, sets namespace `idp-staging`
+- `patch-configmap.yaml` — set ENVIRONMENT=staging, staging Supabase URL
+
+**production overlay:**
+- `kustomization.yaml` — extends base, sets namespace `idp-production`
+- `patch-replicas.yaml` — override replicas to 3
+- `patch-configmap.yaml` — set ENVIRONMENT=production
+
+---
+
+### Task 38: Create ArgoCD Application manifests
+**New folder:** `argocd/`
+- `application-dev.yaml` — ArgoCD Application targeting `k8s/overlays/dev`, namespace `idp-dev`, syncPolicy: manual
+- `application-staging.yaml` — ArgoCD Application targeting `k8s/overlays/staging`, namespace `idp-staging`, syncPolicy: automated (prune + selfHeal)
+- `application-production.yaml` — ArgoCD Application targeting `k8s/overlays/production`, namespace `idp-production`, syncPolicy: automated (prune + selfHeal)
+- All three point to `repoURL: https://github.com/Dakshmulundkar/Internal-Developer-Platform`, `targetRevision: main`
+- Apply with: `kubectl apply -f argocd/ -n argocd`
+
+---
+
+### Task 39: Create GitHub Actions CI/CD pipeline
+**New file:** `.github/workflows/build-push.yml`
+
+**Trigger:** push to `main` branch, changes inside `backend/**`
+
+**Steps:**
+1. Checkout repository
+2. Set up Docker Buildx
+3. Login to GitHub Container Registry (GHCR) using `GITHUB_TOKEN`
+4. Extract short SHA: `SHORT_SHA=$(echo $GITHUB_SHA | head -c 7)`
+5. Build and push image: `ghcr.io/dakshmulundkar/idp-backend:$SHORT_SHA` and `:latest`
+6. Update `k8s/overlays/production/kustomization.yaml` — set `newTag: $SHORT_SHA` under images
+7. Commit the manifest change: `git commit -am "ci: update backend image to $SHORT_SHA"`
+8. Push the commit — ArgoCD detects the manifest change and automatically syncs
+
+**Secrets needed in GitHub repository settings:**
+- `GHCR_TOKEN` — GitHub Personal Access Token with `write:packages` scope (or use default `GITHUB_TOKEN`)
+
+---
+
+### Task 40: Create Kubernetes Secrets for sensitive config
+**Manual step — not automated in CI (secrets never in Git):**
+- Create secret in each namespace manually or via Sealed Secrets / External Secrets Operator:
+```bash
+kubectl create secret generic idp-secrets \
+  --from-literal=SUPABASE_URL=https://xxx.supabase.co \
+  --from-literal=SUPABASE_KEY=eyJ... \
+  --from-literal=OPENAI_API_KEY=sk-... \
+  --from-literal=VERCEL_WEBHOOK_SECRET=whsec_... \
+  --from-literal=NETLIFY_WEBHOOK_SECRET=whsec_... \
+  -n idp-production
+```
+- Document all required secret keys in `k8s/secrets.example.txt` (values blank)
+- Add `k8s/secrets.example.txt` to repo, add `k8s/**/secret.yaml` to `.gitignore`
+
+---
+
+### Task 41: Deploy ArgoCD to Kubernetes cluster and register apps
+**One-time cluster setup:**
+1. Install ArgoCD: `kubectl create namespace argocd && kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml`
+2. Access ArgoCD UI: `kubectl port-forward svc/argocd-server -n argocd 8080:443`
+3. Get initial admin password: `kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d`
+4. Apply the three application manifests: `kubectl apply -f argocd/ -n argocd`
+5. ArgoCD will immediately sync dev and staging (automated); production syncs on next manifest commit
+6. Verify in ArgoCD UI: all 3 applications show `Synced` and `Healthy`
+
+---
+
+### Task 42: Deployment — frontend
 **File:** `vite.config.ts`, `.env.production`
-- Add `VITE_API_URL` and `VITE_WS_URL` to `.env.production`
-- Frontend can be deployed to Vercel free tier
+- Add `VITE_API_URL` pointing to the Kubernetes Ingress public URL (e.g. `https://api.idp.devcorp.com`)
+- Add `VITE_WS_URL` pointing to the WebSocket endpoint (e.g. `wss://api.idp.devcorp.com`)
+- Deploy frontend to Vercel or Netlify — set `VITE_API_URL` and `VITE_WS_URL` as environment variables in the hosting dashboard
 - Verify demo mode still works when env vars are absent (offline/demo fallback)
+- The frontend has zero Kubernetes dependency — it only needs the public API URL
 
 ---
 
 ## Execution Order Summary
 
-### Phase 1 (UI only, do first)
+### Phase 1 (UI only — do first, no backend needed)
 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14
 
-### Phase 2 (backend, do after Phase 1 is verified)
-15 → 16 → 17 → 18 → 19 → 20 → 21 → 22 → 23 → 24 → 25 → 26 → 27 → 28 → 29 → 30 → 31 → 32 → 33 → 34 → 35 → 36
+### Phase 2 (backend + infrastructure — after Phase 1 verified)
+**Backend code:** 15 → 16 → 17 → 18 → 19 → 20 → 21 → 22 → 23 → 24 → 25 → 26 → 27 → 28 → 29 → 30 → 31 → 32 → 33 → 34
+
+**Infrastructure + ArgoCD:** 35 → 36 → 37 → 38 → 39 → 40 → 41 → 42
 
 ---
 
@@ -556,10 +651,10 @@ Rows in order: Assignee | Occurred | Detected | Opened for | Severity | Provider
 | `src/context/PlatformContext.tsx` | Task 2 — updateIncident action |
 | `src/pages/Incidents.tsx` | Tasks 3–13 — full rewrite |
 
-### Phase 2
+### Phase 2 — Backend Code
 | File/Folder | Change |
 |-------------|--------|
-| `backend/` (new) | Tasks 15–35 — new FastAPI backend |
+| `backend/` (new) | Tasks 15–34 — FastAPI backend |
 | `src/services/api.ts` (new) | Tasks 18+ — API client layer |
 | `src/context/PlatformContext.tsx` | Tasks 18,20,25,27,29,33,34 — API integration |
 | `src/pages/AIAssistant.tsx` | Task 29 — real LLM |
@@ -567,9 +662,24 @@ Rows in order: Assignee | Occurred | Detected | Opened for | Severity | Provider
 | `src/pages/Monitoring.tsx` | Task 31 — real plugin data |
 | `src/pages/Integrations.tsx` | Task 31 — real connection test |
 | `.env.example` (new) | Task 15 — env var template |
-| `Dockerfile` (new) | Task 35 — containerization |
-| `render.yaml` (new) | Task 35 — Render deployment |
 
-### Files NOT Changed
-- All other frontend pages (Dashboard, Projects, Deployments, etc.) — untouched during Phase 1
-- seedData.ts — remains for demo mode fallback throughout both phases
+### Phase 2 — Infrastructure (ArgoCD + Kubernetes)
+| File/Folder | Change |
+|-------------|--------|
+| `backend/Dockerfile` (new) | Task 35 — multi-stage Docker build |
+| `backend/.dockerignore` (new) | Task 35 |
+| `k8s/base/` (new) | Task 36 — base K8s manifests |
+| `k8s/overlays/dev/` (new) | Task 37 — dev environment overlay |
+| `k8s/overlays/staging/` (new) | Task 37 — staging overlay |
+| `k8s/overlays/production/` (new) | Task 37 — production overlay |
+| `argocd/application-dev.yaml` (new) | Task 38 — ArgoCD dev app |
+| `argocd/application-staging.yaml` (new) | Task 38 — ArgoCD staging app |
+| `argocd/application-production.yaml` (new) | Task 38 — ArgoCD production app |
+| `.github/workflows/build-push.yml` (new) | Task 39 — CI/CD pipeline |
+| `k8s/secrets.example.txt` (new) | Task 40 — secrets template |
+| `.env.production` (new) | Task 42 — frontend env vars |
+
+### Files NOT Changed at Any Phase
+- All frontend pages except Incidents, AIAssistant, RollbackRecovery, Monitoring, Integrations
+- `seedData.ts` — remains for demo mode fallback throughout both phases
+- `description.md`, `README.md` — updated separately as documentation

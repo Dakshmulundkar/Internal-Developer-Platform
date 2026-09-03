@@ -162,7 +162,14 @@ Redesign the Incidents page to match the reference UI (GitGuardian-style inciden
 - All tokens must be encrypted at rest in Supabase using Supabase Vault or environment variables
 - Webhook processing must be idempotent — processing the same event twice must not create duplicate incidents
 - The frontend must remain fully functional in offline/demo mode using seedData when no backend is available
-- The backend must be deployable on Render or Railway free tier
+- The backend must be containerized with Docker and deployed to Kubernetes via ArgoCD (GitOps model)
 - The frontend must be deployable on Vercel or Netlify free tier
 - Rate limiting must be applied to all public API routes
 - All rollback operations require explicit user confirmation — no autonomous destructive actions
+
+### User Story 21: ArgoCD GitOps Deployment
+- As an operator, I want all backend infrastructure changes to be managed through Git (GitOps model)
+- As an operator, when I push a new backend image to the container registry, ArgoCD must automatically sync and deploy the update to the Kubernetes cluster
+- As an operator, I want ArgoCD to monitor the `k8s/` manifests directory and apply any drift corrections automatically
+- As an operator, I want to be able to roll back the backend to any previous deployment via ArgoCD's revision history without touching code
+- As an operator, I want each environment (dev/staging/production) represented as a separate ArgoCD Application targeting a different namespace
