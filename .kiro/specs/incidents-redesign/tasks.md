@@ -309,6 +309,207 @@ Rows in order: Assignee | Occurred | Detected | Opened for | Severity | Provider
 
 ---
 
+## PHASE 1.5 — SINGLE-PROJECT TEAM UX + PLUGIN DATA DISPLAY
+
+> These tasks extend the existing UI to surface plugin data (Grafana, Datadog, Sentry, ArgoCD) in the right places and add team management. No backend required — all data comes from existing seed data and new mock seed entries.
+> Start Phase 1.5 only after Phase 1 (Tasks 1–14) is complete and visually verified.
+
+---
+
+### ⬜ Task 43: Add new types to platform.ts
+**File:** `src/types/platform.ts`
+**Changes:**
+- Add `ProjectRole` type: `'viewer' | 'developer' | 'admin'`
+- Add `TeamMember` interface:
+  ```ts
+  interface TeamMember {
+    id: string
+    userId: string
+    name: string
+    email: string
+    avatarUrl?: string
+    role: ProjectRole
+    projectId: string
+    addedAt: string
+    addedBy: string
+  }
+  ```
+- Add `ArgoCDAppStatus` interface:
+  ```ts
+  interface ArgoCDAppStatus {
+    appName: string
+    syncStatus: 'Synced' | 'OutOfSync' | 'Degraded' | 'Unknown'
+    healthStatus: 'Healthy' | 'Progressing' | 'Degraded' | 'Suspended'
+    currentImageTag: string
+    lastSyncedAt: string
+    repoUrl: string
+    targetRevision: string
+    namespace: string
+  }
+  ```
+- Export both new types
+
+---
+
+### ⬜ Task 44: Add seed data for TeamMembers and ArgoCD status
+**File:** `src/data/seedData.ts`
+**Changes:**
+- Add `mockArgoCDStatus: ArgoCDAppStatus` export with `syncStatus: 'Synced'`, `currentImageTag: 'a1b2c3d'`
+- Add `initialTeamMembers: TeamMember[]` export with 3 members: Daksh (admin), Sarah Chen (developer), David Kim (developer) — all on project `p1`
+- Import new types at the top of the file
+
+---
+
+### ⬜ Task 45: Add TeamMember state + actions to PlatformContext
+**File:** `src/context/PlatformContext.tsx`
+**Changes:**
+- Add `teamMembers: TeamMember[]` state (init from `initialTeamMembers`, persist to `idp_team` localStorage key)
+- Add to interface + provider value:
+  - `teamMembers: TeamMember[]`
+  - `addTeamMember: (member: Omit<TeamMember, 'id' | 'addedAt' | 'addedBy'>) => void`
+  - `removeTeamMember: (memberId: string) => void`
+  - `updateTeamMemberRole: (memberId: string, role: ProjectRole) => void`
+- Each action appends an audit log entry
+
+---
+
+### ⬜ Task 46: Dashboard — Service Health Widget + ArgoCD row
+**File:** `src/pages/Dashboard.tsx`
+**Changes:**
+- Add `sentryIssues` to context destructure (already in context via `initialSentryIssues`)
+- Import `mockArgoCDStatus` and `initialSentryIssues` from seedData
+- Add **Service Health** card above the Integration Health panel (new top-right card):
+  - 3 mini-stat boxes: Grafana (latest alert value) | Sentry (unresolved count + new today) | Datadog (firing monitor count)
+  - Each box clickable → `navigateTo('monitoring')`
+- Update Integration Health panel — add ArgoCD as a 6th row:
+  ```
+  { name: 'ArgoCD', status: 'synced', detail: `Image: ${mockArgoCDStatus.currentImageTag} • Sync: 2m ago` }
+  ```
+  - Status badge: `synced`=emerald, `out_of_sync`=amber, `degraded`=red
+
+---
+
+### ⬜ Task 47: ProjectDetails — 6-Tab Navigation Shell
+**File:** `src/pages/ProjectDetails.tsx`
+**Changes:**
+- Add local state: `activeTab: 'overview' | 'deployments' | 'monitoring' | 'errors' | 'infrastructure' | 'team'` default `'overview'`
+- Add tab bar below project title row: `[Overview][Deployments][Monitoring][Errors][Infrastructure][Team]`
+- Tab bar style: `flex border-b border-white/[0.06] mb-4` — active = `border-b-2 border-white text-white`, inactive = `text-zinc-500 hover:text-zinc-300`
+- Wrap existing content: overview card + incidents panel → `activeTab === 'overview'`, deployment history table → `activeTab === 'deployments'`
+- Destructure `monitoringAlerts`, `teamMembers`, `addTeamMember`, `removeTeamMember`, `updateTeamMemberRole` from context
+
+---
+
+### ⬜ Task 48: ProjectDetails — Monitoring Tab
+**When `activeTab === 'monitoring'`:**
+- Filter `monitoringAlerts` where `a.projectId === project.id`
+- Card: title "Active Alerts" + count badge + "View all →" link → `navigateTo('monitoring')`
+- Alert list (up to 8, `max-h-64 overflow-y-auto`):
+  - Each row: source badge | severity pill | title | value | relative time
+  - Click → `navigateTo('monitoring')`
+- Empty state: "No active alerts. Connect Grafana, Datadog, or Sentry in Integrations."
+
+---
+
+### ⬜ Task 49: ProjectDetails — Errors Tab
+**When `activeTab === 'errors'`:**
+- Import `initialSentryIssues` from seedData, filter where `i.projectId === project.id`
+- Card: title "Unresolved Sentry Issues" + count + "Ask AI about all" → `navigateTo('ai-assistant', { projectId })`
+- Issue rows (expandable):
+  - Collapsed: `[SN]` | level pill | title | `count×` | `[▼]` | `[Ask AI]`
+  - Expanded: stack trace block + first/last seen + release + env
+  - Level colors: fatal=red, error=orange, warning=amber, info=zinc
+  - "Ask AI" → `navigateTo('ai-assistant', { projectId, deploymentId: issue.deploymentId })`
+- Empty state: "Sentry not configured or no unresolved issues."
+
+---
+
+### ⬜ Task 50: ProjectDetails — Infrastructure Tab
+**When `activeTab === 'infrastructure'`:**
+- Import `mockArgoCDStatus` from seedData
+- Card: title "Infrastructure" + sync status badge
+- KV rows: App Name | Sync Status | Health | Image Tag | Last Synced | Namespace | Repository
+- Action buttons: "Trigger Manual Sync" (adds audit log + inline success toast) + "View Rollback History" → `navigateTo('rollback-recovery', { projectId })`
+- Demo notice banner: amber `bg-amber-500/5 border border-amber-500/20` — "ArgoCD live data requires Phase 2 backend."
+
+---
+
+### ⬜ Task 51: ProjectDetails — Team Tab
+**When `activeTab === 'team'`:**
+- Filter `teamMembers` where `tm.projectId === project.id`
+- Card: title "Team Members" + count + `[+ Invite Member]` (admin only)
+- Members table: MEMBER | EMAIL | ROLE | SINCE | ACTIONS
+  - Avatar initials badge (2-char, gradient) | name | email | role badge | date | `[Edit▾][Remove×]`
+  - Role badges: admin=`bg-white text-black text-[9px]`, developer=blue, viewer=zinc
+  - Edit dropdown: `viewer | developer | admin` → `updateTeamMemberRole`
+  - Remove: `window.confirm` → `removeTeamMember`
+  - Own row: no edit/remove
+- Invite modal (local `showInviteModal` state): email input + role select + `[Send Invite]` → `addTeamMember`
+- Role capabilities footnote at bottom
+
+---
+
+### ⬜ Task 52: DeploymentDetails — Plugin Signals Section
+**File:** `src/pages/DeploymentDetails.tsx`
+**Changes:**
+- Add new card below terminal logs: "Plugin Signals Near This Deployment"
+- Import `monitoringAlerts` from context, `initialSentryIssues` from seedData
+- **Sub-section 1 — Monitoring Alerts (±30 min):**
+  - Filter: `|firedAt - deploy.createdAt| < 30 * 60 * 1000`
+  - Each row: source badge | severity | title | relative-to-deploy label (`+5 min after` / `-10 min before`) | click → monitoring page
+- **Sub-section 2 — Sentry Issues in This Release:**
+  - Filter: `release === deployment.version || deploymentId === deployment.id`
+  - Each row: level pill | title | `count×` | first seen | `[Ask AI]` → AI assistant
+- Empty states for each sub-section when no data
+
+---
+
+### ⬜ Task 53: Settings — Team Management Section
+**File:** `src/pages/Settings.tsx`
+**Changes:**
+- Import `teamMembers`, team actions from context
+- Add new card after "User Profile": "Team Management"
+- Shows same member table as ProjectDetails Team tab
+- `[+ Invite Developer]` button: admin only — opens inline invite form (email + role + submit)
+- Each action calls the corresponding context action
+
+---
+
+### ⬜ Task 54: Role-based UI enforcement
+**Files:** `src/pages/RollbackRecovery.tsx`, `src/pages/Integrations.tsx`, `src/pages/PluginConfig.tsx`, `src/pages/Incidents.tsx`
+**Pattern:**
+```ts
+const userProjectRole = teamMembers.find(
+  tm => tm.projectId === (activeProjectId || projects[0]?.id) && tm.userId === user?.id
+)?.role ?? 'admin' // default admin for demo mode / team lead
+```
+- `RollbackRecovery`: disable rollback button + show tooltip if `userProjectRole === 'viewer'`
+- `Integrations`: hide Configure + Remove buttons if not admin
+- `PluginConfig`: hide Save button + show read-only notice if not admin
+- `Incidents`: hide Resolve/Ignore dropdowns if `userProjectRole === 'viewer'`
+
+---
+
+### ⬜ Task 55: Verify Phase 1.5 interactions
+**No code changes — verification checklist:**
+- [ ] Dashboard Service Health widget shows 3 plugin stat boxes
+- [ ] Dashboard Integration Health shows ArgoCD as 6th row
+- [ ] ProjectDetails has 6 tabs, all switch correctly
+- [ ] Monitoring tab shows alerts filtered to the project
+- [ ] Errors tab shows Sentry issues with expand/collapse and Ask AI
+- [ ] Infrastructure tab shows ArgoCD mock KV data
+- [ ] "Trigger Manual Sync" adds an audit log entry
+- [ ] Team tab shows members with correct role badges
+- [ ] Admin can invite, edit role, and remove members
+- [ ] Non-admin cannot see Invite/Edit/Remove
+- [ ] DeploymentDetails shows Plugin Signals section with both sub-sections
+- [ ] Settings shows Team Management section
+- [ ] Rollback button disabled for viewer role
+- [ ] Integrations Configure/Remove hidden for non-admin
+- [ ] No TypeScript errors across all changed files
+
+---
+
 ## PHASE 2 — REAL BACKEND INTEGRATION
 
 > Start Phase 2 only after Phase 1 is fully complete, visually verified, and no UI changes are needed.

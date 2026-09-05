@@ -7,10 +7,16 @@ import {
 } from 'lucide-react';
 
 export const PluginConfig: React.FC = () => {
-  const { pluginInstallations, activePluginId, updatePluginConfig, uninstallPlugin, navigateTo, projects } = usePlatform();
+  const { pluginInstallations, activePluginId, updatePluginConfig, uninstallPlugin, navigateTo, projects, teamMembers, user, activeProjectId } = usePlatform();
 
   const installation = pluginInstallations.find(p => p.id === activePluginId) || pluginInstallations[0];
   const definition = installation ? pluginDefinitions.find(d => d.id === installation.pluginId) : null;
+
+  // Task 54 — Role-based enforcement
+  const userProjectRole = (teamMembers as any[]).find(
+    tm => tm.projectId === (activeProjectId || (projects as any[])[0]?.id) && tm.userId === (user as any)?.id
+  )?.role ?? 'admin';
+  const isAdmin = userProjectRole === 'admin';
 
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState(installation?.baseUrl || '');
@@ -298,12 +304,19 @@ export const PluginConfig: React.FC = () => {
       </div>
 
       {/* Save button */}
-      <div className="flex justify-end">
-        <button onClick={handleSave}
-          className="bg-white text-black hover:bg-zinc-200 font-medium py-2 px-6 rounded-lg text-xs transition-all flex items-center gap-1.5">
-          <Save size={14} />
-          Save Configuration
-        </button>
+      <div className="flex justify-end items-center gap-3">
+        {!isAdmin && (
+          <span className="text-[10px] text-amber-400 font-mono bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 rounded">
+            Read-only — admin access required to save changes
+          </span>
+        )}
+        {isAdmin && (
+          <button onClick={handleSave}
+            className="bg-white text-black hover:bg-zinc-200 font-medium py-2 px-6 rounded-lg text-xs transition-all flex items-center gap-1.5">
+            <Save size={14} />
+            Save Configuration
+          </button>
+        )}
       </div>
 
       {/* Confirm remove modal */}

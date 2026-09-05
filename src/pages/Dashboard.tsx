@@ -8,11 +8,12 @@ import {
   AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, 
   CartesianGrid, Tooltip, ResponsiveContainer 
 } from 'recharts';
+import { mockArgoCDStatus, initialSentryIssues } from '../data/seedData';
 
 export const Dashboard: React.FC = () => {
   const { 
     projects, deployments, incidents,
-    auditLogs, navigateTo, pluginInstallations, monitoringAlerts
+    auditLogs, navigateTo, pluginInstallations, monitoringAlerts, sentryIssues
   } = usePlatform();
 
   const totalProjects = projects.length;
@@ -21,6 +22,15 @@ export const Dashboard: React.FC = () => {
   const openIncidents = incidents.filter(i => i.status !== 'resolved').length;
   const installedPlugins = pluginInstallations.length;
   const firingAlerts = monitoringAlerts.filter(a => a.status === 'firing').length;
+
+  // Service Health derived metrics
+  const issues = sentryIssues ?? initialSentryIssues;
+  const unresolvedSentry = issues.filter(i => i.status === 'unresolved').length;
+  const date24hAgo = new Date(Date.now() - 86400000).toISOString();
+  const newSentryToday = issues.filter(i => i.firstSeen >= date24hAgo).length;
+  const firingGrafana = monitoringAlerts.filter(a => a.source === 'grafana' && a.status === 'firing');
+  const firingDatadog = monitoringAlerts.filter(a => a.source === 'datadog' && a.status === 'firing').length;
+  const grafanaValue = firingGrafana[0]?.value ?? null;
 
   const successChartData = [
     { name: 'Aug 13', successRate: 94 },
@@ -50,14 +60,6 @@ export const Dashboard: React.FC = () => {
     { name: 'Aug 17', grafana: 1, datadog: 1, sentry: 2 },
     { name: 'Aug 18', grafana: 1, datadog: 0, sentry: 1 },
     { name: 'Aug 19', grafana: 1, datadog: 1, sentry: 2 },
-  ];
-
-  const providerStatuses = [
-    { name: 'Vercel API',  status: 'connected', latency: '48ms',  detail: 'Webhooks: Active • RSA-256' },
-    { name: 'Netlify CDN', status: 'error',     latency: '—',     detail: 'Webhook signature mismatch' },
-    { name: 'Grafana',     status: 'connected', latency: '120ms', detail: 'Dashboards: 4 panels synced' },
-    { name: 'Datadog',     status: 'connected', latency: '95ms',  detail: 'Monitors: 3 active' },
-    { name: 'Sentry',      status: 'syncing',   latency: '—',     detail: 'Syncing releases...' },
   ];
 
   return (
@@ -218,11 +220,20 @@ export const Dashboard: React.FC = () => {
         </div>
 
         <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
-          <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider mb-4">Integration Health</h4>
-          <div className="space-y-3">
-            {providerStatuses.map(p => (
-              <div key={p.name} className="p-3 bg-white/[0.02] border border-white/[0.06] rounded-lg">
-                <div className="flex justify-between items-center mb-1">
+          {/* Integration Health */}
+          <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider mb-3">Integration Health</h4>
+          <div className="space-y-2">
+            {[
+              { name: 'Vercel API',  status: 'connected', latency: '48ms',  detail: 'Webhooks: Active • RSA-256' },
+              { name: 'Netlify CDN', status: 'error',     latency: '—',     detail: 'Webhook signature mismatch' },
+              { name: 'Grafana',     status: 'connected', latency: '120ms', detail: 'Dashboards: 4 panels synced' },
+              { name: 'Datadog',     status: 'connected', latency: '95ms',  detail: 'Monitors: 3 active' },
+              { name: 'Sentry',      status: 'syncing',   latency: '—',     detail: 'Syncing releases...' },
+              { name: 'ArgoCD',      status: mockArgoCDStatus.syncStatus === 'Synced' ? 'connected' : mockArgoCDStatus.syncStatus === 'OutOfSync' ? 'syncing' : 'error',
+                latency: '—', detail: `Image: ${mockArgoCDStatus.currentImageTag} • ns: ${mockArgoCDStatus.namespace}` },
+            ].map(p => (
+              <div key={p.name} className="p-2.5 bg-white/[0.02] border border-white/[0.06] rounded-lg">
+                <div className="flex justify-between items-center mb-0.5">
                   <span className="text-xs font-bold text-zinc-300">{p.name}</span>
                   <span className={`text-[10px] font-bold flex items-center gap-1 px-2 py-0.5 rounded font-mono border ${
                     p.status === 'connected' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
@@ -233,17 +244,91 @@ export const Dashboard: React.FC = () => {
                       p.status === 'connected' ? 'bg-emerald-500 animate-ping' :
                       p.status === 'error'     ? 'bg-red-500' : 'bg-amber-500 animate-pulse'
                     }`}></span>
-                    {p.status === 'connected' ? '200 OK' : p.status === 'error' ? 'ERROR' : 'SYNCING'}
+                    {p.status === 'connected' ? 'OK' : p.status === 'error' ? 'ERR' : 'SYNC'}
                   </span>
                 </div>
-                <p className="text-[10px] text-zinc-500">{p.detail}{p.latency !== '—' ? ` • ${p.latency}` : ''}</p>
+                <p className="text-[9px] text-zinc-500 truncate">{p.detail}{p.latency !== '—' ? ` • ${p.latency}` : ''}</p>
               </div>
             ))}
           </div>
-          <div className="mt-4 pt-3 border-t border-white/[0.06] text-center">
+          <div className="mt-3 pt-3 border-t border-white/[0.06] text-center">
             <button onClick={() => navigateTo('integrations')} className="text-[11px] font-semibold text-zinc-400 hover:text-zinc-200 hover:underline">
               Manage Integrations →
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Service Health — full width below audit trail + integration health */}
+      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
+        <div className="flex justify-between items-center mb-4">
+          <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Service Health</h4>
+          <button onClick={() => navigateTo('monitoring')} className="text-[10px] text-zinc-400 hover:text-zinc-200 hover:underline">View all alerts →</button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Grafana */}
+          <div onClick={() => navigateTo('monitoring')}
+            className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5 cursor-pointer hover:bg-white/[0.04] transition-all group">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] font-bold font-mono text-orange-400 uppercase tracking-wider">Grafana</span>
+              <span className={`text-[9px] font-mono font-semibold px-2 py-0.5 rounded border ${
+                firingGrafana.length > 0
+                  ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+              }`}>
+                {firingGrafana.length > 0 ? `${firingGrafana.length} FIRING` : 'ALL CLEAR'}
+              </span>
+            </div>
+            <div className="text-2xl font-bold font-mono text-zinc-100 mb-1">
+              {grafanaValue ?? '—'}
+            </div>
+            <p className="text-xs text-zinc-500">
+              {firingGrafana.length > 0
+                ? firingGrafana[0]?.title ?? 'Alert firing'
+                : 'No active alerts'}
+            </p>
+          </div>
+
+          {/* Sentry */}
+          <div onClick={() => navigateTo('monitoring')}
+            className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5 cursor-pointer hover:bg-white/[0.04] transition-all group">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] font-bold font-mono text-violet-400 uppercase tracking-wider">Sentry</span>
+              <span className={`text-[9px] font-mono font-semibold px-2 py-0.5 rounded border ${
+                unresolvedSentry > 0
+                  ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+              }`}>
+                {unresolvedSentry > 0 ? 'UNRESOLVED' : 'ALL CLEAR'}
+              </span>
+            </div>
+            <div className={`text-2xl font-bold font-mono mb-1 ${unresolvedSentry > 0 ? 'text-red-400' : 'text-zinc-100'}`}>
+              {unresolvedSentry} issues
+            </div>
+            <p className="text-xs text-zinc-500">
+              {newSentryToday > 0 ? `${newSentryToday} new in last 24h` : 'No new issues today'}
+            </p>
+          </div>
+
+          {/* Datadog */}
+          <div onClick={() => navigateTo('monitoring')}
+            className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5 cursor-pointer hover:bg-white/[0.04] transition-all group">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] font-bold font-mono text-purple-400 uppercase tracking-wider">Datadog</span>
+              <span className={`text-[9px] font-mono font-semibold px-2 py-0.5 rounded border ${
+                firingDatadog > 0
+                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+              }`}>
+                {firingDatadog > 0 ? 'MONITORS FIRING' : 'ALL HEALTHY'}
+              </span>
+            </div>
+            <div className={`text-2xl font-bold font-mono mb-1 ${firingDatadog > 0 ? 'text-amber-400' : 'text-zinc-100'}`}>
+              {firingDatadog} alerts
+            </div>
+            <p className="text-xs text-zinc-500">
+              {firingDatadog > 0 ? 'Active monitors alerting' : 'All monitors healthy'}
+            </p>
           </div>
         </div>
       </div>

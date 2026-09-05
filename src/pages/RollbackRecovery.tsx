@@ -13,13 +13,19 @@ export const RollbackRecovery: React.FC = () => {
     rollbackOperations, 
     startRollback, 
     activeProjectId,
-    navigateTo 
+    navigateTo,
+    teamMembers,
+    user,
   } = usePlatform();
 
   const [selectedProjId, setSelectedProjId] = useState<string>(activeProjectId || projects[0]?.id || '');
   const [targetDeployId, setTargetDeployId] = useState<string>('');
 
   const currentProject = projects.find(p => p.id === selectedProjId);
+
+  const userProjectRole = teamMembers.find(
+    (tm: any) => tm.projectId === (selectedProjId || projects[0]?.id) && tm.userId === user?.id
+  )?.role ?? 'admin';
   
   // Filter successful candidate deployments for this project (status ready)
   const candidateDeploys = deployments.filter(
@@ -112,14 +118,25 @@ export const RollbackRecovery: React.FC = () => {
             {/* Action Trigger button */}
             {targetDeployId && (
               <div className="pt-2">
-                <button
-                  onClick={handleInitiateRollback}
-                  disabled={!!activeRollback}
-                  className="bg-white text-black hover:bg-zinc-200 disabled:opacity-50 font-medium py-2.5 px-4 rounded-lg text-xs transition-all flex items-center gap-1.5 font-mono"
-                >
-                  <RefreshCw size={14} />
-                  Initiate API Rollback Route
-                </button>
+                {userProjectRole === 'viewer' ? (
+                  <button
+                    disabled
+                    title="Requires admin role"
+                    className="bg-white text-black opacity-50 cursor-not-allowed font-medium py-2.5 px-4 rounded-lg text-xs flex items-center gap-1.5 font-mono"
+                  >
+                    <RefreshCw size={14} />
+                    Initiate API Rollback Route
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleInitiateRollback}
+                    disabled={!!activeRollback}
+                    className="bg-white text-black hover:bg-zinc-200 disabled:opacity-50 font-medium py-2.5 px-4 rounded-lg text-xs transition-all flex items-center gap-1.5 font-mono"
+                  >
+                    <RefreshCw size={14} />
+                    Initiate API Rollback Route
+                  </button>
+                )}
               </div>
             )}
           </div>

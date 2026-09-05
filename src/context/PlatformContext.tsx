@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { 
   Project, Deployment, Incident, RollbackOperation, Notification, AuditLog, User,
   DeploymentStatus, IncidentStatus, IncidentSeverity, ProviderType, EnvironmentType,
-  PluginInstallation, MonitoringAlert, SentryIssue
+  PluginInstallation, MonitoringAlert, SentryIssue, TeamMember, ProjectRole
 } from '../types/platform';
 import { 
   currentUser as initialUser,
@@ -16,7 +16,8 @@ import {
   initialPluginInstallations,
   initialMonitoringAlerts,
   initialSentryIssues,
-  pluginDefinitions
+  pluginDefinitions,
+  initialTeamMembers
 } from '../data/seedData';
 
 type PageType = 
@@ -77,6 +78,12 @@ interface PlatformContextProps {
   // Incident Update
   updateIncident: (incidentId: string, updates: Partial<Incident>) => void;
 
+  // Team Management
+  teamMembers: TeamMember[];
+  addTeamMember: (member: Omit<TeamMember, 'id' | 'addedAt' | 'addedBy'>) => void;
+  removeTeamMember: (memberId: string) => void;
+  updateTeamMemberRole: (memberId: string, role: ProjectRole) => void;
+
   // Webhook Simulator
   triggerWebhookSimulation: (projectId: string, forceStatus?: DeploymentStatus) => void;
 }
@@ -131,6 +138,11 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   });
 
   const [sentryIssues] = useState<SentryIssue[]>(initialSentryIssues);
+
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>(() => {
+    const saved = localStorage.getItem('idp_team');
+    return saved ? JSON.parse(saved) : initialTeamMembers;
+  });
 
   // Navigation Context
   const [currentPage, setCurrentPage] = useState<PageType>(() => {
@@ -190,6 +202,10 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     localStorage.setItem('idp_alerts', JSON.stringify(monitoringAlerts));
   }, [monitoringAlerts]);
+
+  useEffect(() => {
+    localStorage.setItem('idp_team', JSON.stringify(teamMembers));
+  }, [teamMembers]);
 
   useEffect(() => {
     localStorage.setItem('idp_page', currentPage);
@@ -875,6 +891,64 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  // Team Management Actions
+  const addTeamMember = (member: Omit<TeamMember, 'id' | 'addedAt' | 'addedBy'>) => {
+    if (!user) return;
+    const newMember: TeamMember = {
+      ...member,
+      id: 'tm_' + Math.random().toString(36).substr(2, 9),
+      addedAt: new Date().toISOString(),
+      addedBy: user.id,
+    };
+    setTeamMembers(prev => [...prev, newMember]);
+
+    const newAudit: AuditLog = {
+      id: 'a_' + Math.random().toString(36).substr(2, 9),
+      userId: user.id,
+      userName: user.name,
+      action: 'TEAM_MEMBER_ADD',
+      details: `Added team member ${newMember.name} (${newMember.email}) with role ${newMember.role}.`,
+      createdAt: new Date().toISOString(),
+    };
+    setAuditLogs(prev => [newAudit, ...prev]);
+  };
+
+  const removeTeamMember = (memberId: string) => {
+    if (!user) return;
+    const member = teamMembers.find(tm => tm.id === memberId);
+    setTeamMembers(prev => prev.filter(tm => tm.id !== memberId));
+
+    if (member) {
+      const newAudit: AuditLog = {
+        id: 'a_' + Math.random().toString(36).substr(2, 9),
+        userId: user.id,
+        userName: user.name,
+        action: 'TEAM_MEMBER_REMOVE',
+        details: `Removed team member ${member.name} from project.`,
+        createdAt: new Date().toISOString(),
+      };
+      setAuditLogs(prev => [newAudit, ...prev]);
+    }
+  };
+
+  const updateTeamMemberRole = (memberId: string, role: ProjectRole) => {
+    if (!user) return;
+    const member = teamMembers.find(tm => tm.id === memberId);
+    setTeamMembers(prev => prev.map(tm => tm.id === memberId ? { ...tm, role } : tm));
+
+    if (member) {
+      const newAudit: AuditLog = {
+        id: 'a_' + Math.random().toString(36).substr(2, 9),
+        userId: user.id,
+        userName: user.name,
+        action: 'TEAM_MEMBER_ROLE_UPDATE',
+        details: `Updated role for ${member.name} to ${role}.`,
+        createdAt: new Date().toISOString(),
+      };
+      setAuditLogs(prev => [newAudit, ...prev]);
+    }
+  };
+
   // Plugin Actions
   const installPlugin = (pluginId: string) => {
     if (!user) return;
@@ -1005,6 +1079,10 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       installPlugin,
       uninstallPlugin,
       updatePluginConfig,
+      teamMembers,
+      addTeamMember,
+      removeTeamMember,
+      updateTeamMemberRole,
       triggerWebhookSimulation
     }}>
       {children}

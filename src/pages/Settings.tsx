@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import { 
   Github, Shield, Bell, User, CheckCircle, RefreshCw, Puzzle,
-  AlertCircle, ExternalLink
+  AlertCircle, ExternalLink, X
 } from 'lucide-react';
+import type { ProjectRole } from '../types/platform';
 
 export const Settings: React.FC = () => {
-  const { user, updateUserConnections, pluginInstallations, navigateTo } = usePlatform();
+  const { user, updateUserConnections, pluginInstallations, navigateTo, teamMembers, addTeamMember, removeTeamMember, updateTeamMemberRole, projects } = usePlatform();
 
   const [gitUser,        setGitUser]        = useState(user?.connectedGithub || '');
   const [connectVcl,     setConnectVcl]     = useState(user?.connectedVercel || false);
@@ -17,6 +18,10 @@ export const Settings: React.FC = () => {
   const [notifyAlerts,   setNotifyAlerts]   = useState(true);
   const [notifyPlugins,  setNotifyPlugins]  = useState(true);
   const [saveSuccess,    setSaveSuccess]    = useState(false);
+  // Team management state
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<ProjectRole>('developer');
 
   const grafana = pluginInstallations.find(p => p.pluginId === 'plugin-grafana');
   const datadog = pluginInstallations.find(p => p.pluginId === 'plugin-datadog');
@@ -167,6 +172,128 @@ export const Settings: React.FC = () => {
             <span>Account scopes managed by your corporate directory. Contact operations to adjust role permissions.</span>
           </div>
         </div>
+
+        {/* Team Management */}
+        {(() => {
+          const scopeProjectId = projects[0]?.id;
+          const projectMembers = teamMembers.filter((tm: any) => tm.projectId === scopeProjectId);
+          const roleClass = (role: ProjectRole) => {
+            if (role === 'admin') return 'bg-white text-black text-[9px] px-2 py-0.5 rounded font-mono';
+            if (role === 'developer') return 'bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[9px] px-2 py-0.5 rounded';
+            return 'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 text-[9px] px-2 py-0.5 rounded';
+          };
+          const handleInvite = () => {
+            if (!inviteEmail.trim() || !scopeProjectId) return;
+            addTeamMember({
+              userId: 'u_' + Math.random().toString(36).substr(2, 6),
+              name: inviteEmail.split('@')[0],
+              email: inviteEmail,
+              role: inviteRole,
+              projectId: scopeProjectId,
+            });
+            setShowInviteModal(false);
+            setInviteEmail('');
+            setInviteRole('developer');
+          };
+          return (
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <User size={16} className="text-zinc-500" />
+                  Team Management
+                </h3>
+                {user?.role === 'admin' && (
+                  <button type="button" onClick={() => setShowInviteModal(true)}
+                    className="text-[10px] font-semibold text-zinc-300 border border-white/[0.06] hover:border-white/20 bg-white/[0.03] hover:bg-white/[0.05] px-3 py-1.5 rounded transition-all">
+                    + Invite Developer
+                  </button>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-white/[0.06] text-[10px] font-semibold text-zinc-600 uppercase tracking-wider">
+                      <th className="pb-2">MEMBER</th>
+                      <th className="pb-2">EMAIL</th>
+                      <th className="pb-2">ROLE</th>
+                      <th className="pb-2">SINCE</th>
+                      <th className="pb-2">ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.06]">
+                    {projectMembers.map((tm: any) => {
+                      const isOwnRow = tm.userId === user?.id;
+                      const initials = tm.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase();
+                      return (
+                        <tr key={tm.id} className="hover:bg-white/[0.02] transition-colors">
+                          <td className="py-3 pr-4">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-md bg-gradient-to-tr from-zinc-700 to-zinc-500 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
+                                {initials}
+                              </div>
+                              <span className="text-zinc-200 font-medium">{tm.name}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 pr-4 font-mono text-[10px] text-zinc-500">{tm.email}</td>
+                          <td className="py-3 pr-4"><span className={roleClass(tm.role)}>{tm.role}</span></td>
+                          <td className="py-3 pr-4 text-[10px] text-zinc-500 font-mono">{new Date(tm.addedAt).toLocaleDateString()}</td>
+                          <td className="py-3">
+                            {!isOwnRow && (
+                              <div className="flex items-center gap-2">
+                                <select value={tm.role} onChange={e => updateTeamMemberRole(tm.id, e.target.value as ProjectRole)}
+                                  className="bg-black/30 border border-white/[0.06] text-zinc-300 text-[10px] rounded p-0.5">
+                                  <option value="viewer">viewer</option>
+                                  <option value="developer">developer</option>
+                                  <option value="admin">admin</option>
+                                </select>
+                                <button onClick={() => { if (window.confirm('Remove member?')) removeTeamMember(tm.id); }}
+                                  className="text-red-400 hover:text-red-300 text-xs font-mono">×</button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {/* Invite modal */}
+              {showInviteModal && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+                  <div className="bg-[#050505] border border-white/[0.06] rounded-xl p-6 w-96 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold text-white">Invite Team Member</h4>
+                      <button type="button" onClick={() => { setShowInviteModal(false); setInviteEmail(''); setInviteRole('developer'); }} className="text-zinc-500 hover:text-zinc-300"><X size={16} /></button>
+                    </div>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-zinc-400 mb-1.5">Email address</label>
+                        <input type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)}
+                          placeholder="developer@company.com"
+                          className="w-full bg-black/30 border border-white/[0.06] text-zinc-100 placeholder-zinc-600 focus:border-white/20 focus:outline-none rounded-md py-2 px-3 text-xs" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-zinc-400 mb-1.5">Role</label>
+                        <select value={inviteRole} onChange={e => setInviteRole(e.target.value as ProjectRole)}
+                          className="w-full bg-black/30 border border-white/[0.06] text-zinc-300 rounded-md py-2 px-3 text-xs">
+                          <option value="viewer">viewer</option>
+                          <option value="developer">developer</option>
+                          <option value="admin">admin</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-3 pt-2 border-t border-white/[0.06]">
+                      <button type="button" onClick={() => { setShowInviteModal(false); setInviteEmail(''); setInviteRole('developer'); }}
+                        className="px-3 py-1.5 rounded bg-zinc-900 hover:bg-zinc-800 border border-white/[0.06] text-zinc-300 text-xs font-medium">Cancel</button>
+                      <button type="button" onClick={handleInvite}
+                        className="px-3 py-1.5 rounded bg-white text-black hover:bg-zinc-200 text-xs font-medium">Send Invite</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         <div className="flex justify-end">
           <button type="submit"

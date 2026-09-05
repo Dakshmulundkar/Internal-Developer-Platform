@@ -235,3 +235,36 @@ export interface SentryIssue {
   environment?: string;
   stackTrace?: string;
 }
+
+// ────────────────────────────────────────────────
+// Team Management
+// ────────────────────────────────────────────────
+
+export type ProjectRole = 'viewer' | 'developer' | 'admin';
+
+export interface TeamMember {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  avatarUrl?: string;
+  role: ProjectRole;
+  projectId: string;
+  addedAt: string;
+  addedBy: string;
+}
+
+// ────────────────────────────────────────────────
+// ArgoCD / Infrastructure
+// ────────────────────────────────────────────────
+
+export interface ArgoCDAppStatus {
+  appName: string;
+  syncStatus: 'Synced' | 'OutOfSync' | 'Degraded' | 'Unknown';
+  healthStatus: 'Healthy' | 'Progressing' | 'Degraded' | 'Suspended';
+  currentImageTag: string;
+  lastSyncedAt: string;
+  repoUrl: string;
+  targetRevision: string;
+  namespace: string;
+}

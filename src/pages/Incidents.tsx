@@ -130,8 +130,13 @@ export const Incidents: React.FC = () => {
   const {
     incidents, deployments, monitoringAlerts, navigateTo,
     addComment, resolveIncident, updateIncident, user,
-    activeIncidentId,
+    activeIncidentId, teamMembers, projects, activeProjectId,
   } = usePlatform();
+
+  // Task 54 — Role-based enforcement
+  const userProjectRole = (teamMembers as any[]).find(
+    tm => tm.projectId === (activeProjectId || (projects as any[])[0]?.id) && tm.userId === user?.id
+  )?.role ?? 'admin';
 
   // Task 5a — State
   const [listTab, setListTab] = useState<ListTab>('all');
@@ -787,10 +792,15 @@ export const Incidents: React.FC = () => {
               <span className={`px-3 py-1 rounded text-xs font-semibold uppercase font-mono border ${statusBadge(selectedIncident.status)}`}>
                 {selectedIncident.status}
               </span>
+              {userProjectRole === 'viewer' && (
+                <p className="text-[10px] text-zinc-500 mt-2 flex items-center gap-1">
+                  <span className="text-amber-400 font-mono">viewer</span> — read-only access
+                </p>
+              )}
             </div>
 
-            {/* Task 11b & 11c — Resolve + Ignore dropdowns */}
-            {selectedIncident.status !== 'resolved' && (
+            {/* Task 11b & 11c — Resolve + Ignore dropdowns (hidden for viewers) */}
+            {selectedIncident.status !== 'resolved' && userProjectRole !== 'viewer' && (
               <div className="flex gap-2 mb-4">
                 {/* Resolve dropdown */}
                 <div className="relative" ref={resolveRef}>

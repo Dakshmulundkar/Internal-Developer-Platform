@@ -32,12 +32,18 @@ const statusBadge = (status: PluginStatus) => {
 };
 
 export const Integrations: React.FC = () => {
-  const { pluginInstallations, installPlugin, uninstallPlugin, navigateTo } = usePlatform();
+  const { pluginInstallations, installPlugin, uninstallPlugin, navigateTo, teamMembers, user, activeProjectId, projects } = usePlatform();
   const [tab, setTab] = useState<'all' | 'installed'>('all');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<PluginCategory | 'all'>('all');
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [installingId, setInstallingId] = useState<string | null>(null);
+
+  // Task 54 — Role-based enforcement
+  const userProjectRole = (teamMembers as any[]).find(
+    tm => tm.projectId === (activeProjectId || (projects as any[])[0]?.id) && tm.userId === user?.id
+  )?.role ?? 'admin';
+  const isAdmin = userProjectRole === 'admin';
 
   const handleInstall = (pluginId: string) => {
     setInstallingId(pluginId);
@@ -208,13 +214,17 @@ export const Integrations: React.FC = () => {
                 <div className="px-5 py-3 flex items-center justify-between gap-2">
                   {isInstalled ? (
                     <>
-                      <button
-                        onClick={() => navigateTo('plugin-config', { pluginId: installation!.id })}
-                        className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
-                      >
-                        <Settings size={13} />
-                        Configure
-                      </button>
+                      {isAdmin ? (
+                        <button
+                          onClick={() => navigateTo('plugin-config', { pluginId: installation!.id })}
+                          className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
+                        >
+                          <Settings size={13} />
+                          Configure
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-zinc-600 font-mono">view only</span>
+                      )}
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => navigateTo('plugin-config', { pluginId: installation!.id })}
@@ -223,13 +233,15 @@ export const Integrations: React.FC = () => {
                           <RefreshCw size={10} />
                           Test
                         </button>
-                        <button
-                          onClick={() => setConfirmRemoveId(installation!.id)}
-                          className="text-[10px] font-mono text-red-400 hover:text-red-300 border border-red-500/20 hover:border-red-500/30 px-2 py-1 rounded transition-all flex items-center gap-1"
-                        >
-                          <Trash2 size={10} />
-                          Remove
-                        </button>
+                        {isAdmin && (
+                          <button
+                            onClick={() => setConfirmRemoveId(installation!.id)}
+                            className="text-[10px] font-mono text-red-400 hover:text-red-300 border border-red-500/20 hover:border-red-500/30 px-2 py-1 rounded transition-all flex items-center gap-1"
+                          >
+                            <Trash2 size={10} />
+                            Remove
+                          </button>
+                        )}
                       </div>
                     </>
                   ) : (

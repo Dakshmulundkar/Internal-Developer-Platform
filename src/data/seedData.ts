@@ -1,4 +1,4 @@
-import type { Project, Deployment, Incident, RollbackOperation, Notification, AuditLog, User, PluginDefinition, PluginInstallation, MonitoringAlert, SentryIssue } from '../types/platform';
+import type { Project, Deployment, Incident, RollbackOperation, Notification, AuditLog, User, PluginDefinition, PluginInstallation, MonitoringAlert, SentryIssue, TeamMember, ArgoCDAppStatus } from '../types/platform';
 
 export const currentUser: User = {
   id: 'u1',
@@ -887,5 +887,58 @@ export const initialSentryIssues: SentryIssue[] = [
     stackTrace: `ReferenceError: DATABASE_URL is not defined
   at initConnection (api/db/connection.ts:8:22)
   at bootstrapLambda (api/handler.ts:14:3)`,
+  },
+];
+
+// ─────────────────────────────────────────────────────────
+// ArgoCD Mock Status
+// ─────────────────────────────────────────────────────────
+export const mockArgoCDStatus: ArgoCDAppStatus = {
+  appName: 'idp-backend-production',
+  syncStatus: 'Synced',
+  healthStatus: 'Healthy',
+  currentImageTag: 'a1b2c3d',
+  lastSyncedAt: '2026-08-19T14:55:00Z',
+  repoUrl: 'https://github.com/Dakshmulundkar/Internal-Developer-Platform',
+  targetRevision: 'main',
+  namespace: 'idp-production',
+};
+
+// ─────────────────────────────────────────────────────────
+// Initial Team Members
+// ─────────────────────────────────────────────────────────
+export const initialTeamMembers: TeamMember[] = [
+  {
+    id: 'tm1',
+    userId: 'u1',
+    name: 'Daksh Mulundkar',
+    email: 'daksh.mulundkar@devcorp.com',
+    avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&h=80&q=80',
+    role: 'admin',
+    projectId: 'p1',
+    addedAt: '2026-01-10T08:00:00Z',
+    addedBy: 'u1',
+  },
+  {
+    id: 'tm2',
+    userId: 'u3',
+    name: 'Sarah Chen',
+    email: 'sarah.chen@devcorp.com',
+    avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=80&h=80&q=80',
+    role: 'developer',
+    projectId: 'p1',
+    addedAt: '2026-01-12T09:00:00Z',
+    addedBy: 'u1',
+  },
+  {
+    id: 'tm3',
+    userId: 'u2',
+    name: 'David Kim',
+    email: 'david.kim@devcorp.com',
+    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=80&h=80&q=80',
+    role: 'developer',
+    projectId: 'p1',
+    addedAt: '2026-01-12T09:05:00Z',
+    addedBy: 'u1',
   },
 ];

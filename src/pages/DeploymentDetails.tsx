@@ -4,7 +4,7 @@ import {
   ArrowLeft, Terminal, Bot, RefreshCw, AlertCircle, 
   CheckCircle, Play, Server, GitCommit, User, Sparkles
 } from 'lucide-react';
-import { aiExplanations } from '../data/seedData';
+import { aiExplanations, initialSentryIssues } from '../data/seedData';
 import type { DeploymentStatus } from '../types/platform';
 
 export const DeploymentDetails: React.FC = () => {
@@ -13,7 +13,8 @@ export const DeploymentDetails: React.FC = () => {
     deployments, 
     navigateTo, 
     triggerWebhookSimulation,
-    projects
+    projects,
+    monitoringAlerts,
   } = usePlatform();
 
   const [isRetrying, setIsRetrying] = useState(false);
@@ -310,6 +311,110 @@ export const DeploymentDetails: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Plugin Signals Near This Deployment */}
+      {(() => {
+        const depTime = new Date(deployment.createdAt).getTime();
+        const nearAlerts = monitoringAlerts.filter((a: any) =>
+          Math.abs(new Date(a.firedAt).getTime() - depTime) < 1800000
+        );
+        const releaseIssues = initialSentryIssues.filter(i =>
+          i.release === deployment.version || i.deploymentId === deployment.id
+        );
+
+        const sourceBadge = (source: string) => {
+          const map: Record<string, string> = {
+            netlify: 'bg-teal-500/10 text-teal-400 border border-teal-500/20',
+            vercel:  'bg-zinc-500/10 text-zinc-200 border border-zinc-500/20',
+            grafana: 'bg-orange-500/10 text-orange-400 border border-orange-500/20',
+            datadog: 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
+            sentry:  'bg-violet-500/10 text-violet-400 border border-violet-500/20',
+          };
+          return map[source.toLowerCase()] || 'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20';
+        };
+        const sourceLabel = (source: string) => {
+          const m: Record<string, string> = { netlify:'NF',vercel:'VC',grafana:'GF',datadog:'DD',sentry:'SN' };
+          return m[source.toLowerCase()] || source.slice(0,2).toUpperCase();
+        };
+        const sevClass = (sev: string) => {
+          const m: Record<string, string> = {
+            critical:'text-red-400 bg-red-500/10 border border-red-500/20',
+            high:'text-orange-400 bg-orange-500/10 border border-orange-500/20',
+            medium:'text-amber-400 bg-amber-500/10 border border-amber-500/20',
+            low:'text-zinc-400 bg-zinc-500/10 border border-zinc-500/20',
+          };
+          return m[sev] || m.low;
+        };
+        const levelClass = (level: string) => {
+          const m: Record<string, string> = {
+            fatal:'text-red-400 bg-red-500/10 border border-red-500/20',
+            error:'text-orange-400 bg-orange-500/10 border border-orange-500/20',
+            warning:'text-amber-400 bg-amber-500/10 border border-amber-500/20',
+            info:'text-zinc-400 bg-zinc-500/10 border border-zinc-500/20',
+          };
+          return m[level] || m.info;
+        };
+
+        const deltaLabel = (firedAt: string) => {
+          const diff = Math.round((new Date(firedAt).getTime() - depTime) / 60000);
+          return diff >= 0 ? `+${diff}m after` : `${diff}m before`;
+        };
+
+        return (
+          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-5">
+            <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Plugin Signals Near This Deployment</h4>
+
+            {/* Sub-section 1: Monitoring Alerts ±30 min */}
+            <div>
+              <h5 className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-3">Monitoring Alerts (±30 min)</h5>
+              {nearAlerts.length === 0 ? (
+                <p className="text-xs text-zinc-600 italic">No alerts fired within ±30 minutes of this deployment.</p>
+              ) : (
+                <div className="space-y-2">
+                  {nearAlerts.map((alert: any) => (
+                    <div key={alert.id} onClick={() => navigateTo('monitoring')}
+                      className="flex items-center gap-3 p-2.5 bg-white/[0.02] border border-white/[0.06] rounded-lg cursor-pointer hover:bg-white/[0.04] transition-all">
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono border shrink-0 ${sourceBadge(alert.source)}`}>
+                        {sourceLabel(alert.source)}
+                      </span>
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono border shrink-0 ${sevClass(alert.severity)}`}>
+                        {alert.severity}
+                      </span>
+                      <span className="text-xs text-zinc-300 flex-1 truncate">{alert.title}</span>
+                      <span className="text-[9px] font-mono text-zinc-500 shrink-0">{deltaLabel(alert.firedAt)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Sub-section 2: Sentry Issues in This Release */}
+            <div>
+              <h5 className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-3">Sentry Issues in This Release</h5>
+              {releaseIssues.length === 0 ? (
+                <p className="text-xs text-zinc-600 italic">No Sentry issues linked to this release version.</p>
+              ) : (
+                <div className="space-y-2">
+                  {releaseIssues.map(issue => (
+                    <div key={issue.id} className="flex items-center gap-3 p-2.5 bg-white/[0.02] border border-white/[0.06] rounded-lg">
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono border shrink-0 ${levelClass(issue.level)}`}>
+                        {issue.level}
+                      </span>
+                      <span className="text-xs text-zinc-300 flex-1 truncate">{issue.title}</span>
+                      <span className="text-[10px] font-mono text-zinc-500 shrink-0">{issue.count}×</span>
+                      <span className="text-[9px] text-zinc-600 font-mono shrink-0">{new Date(issue.firstSeen).toLocaleDateString()}</span>
+                      <button onClick={() => navigateTo('ai-assistant', { projectId: deployment.projectId, deploymentId: issue.deploymentId })}
+                        className="text-[10px] text-zinc-400 hover:text-zinc-200 border border-white/[0.06] hover:border-white/10 px-2 py-0.5 rounded transition-all shrink-0">
+                        Ask AI
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Quick Rollback Confirmation Modal */}
       {showRollbackModal && stableTarget && (

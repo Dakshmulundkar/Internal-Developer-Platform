@@ -766,3 +766,310 @@ Events pushed to frontend:
 - plugin.sync_complete → update plugin status
 - notification.new → update notification count badge
 ```
+
+---
+
+## Phase 1.5 — Single-Project Team UX + Plugin Data Display
+
+### Revised Information Architecture
+
+```
+Real user mental model:
+  Team Lead → creates 1 project → installs plugins → invites developers
+  Each developer logs in → sees their project health in one place
+
+Page roles:
+  Dashboard        → Quick health snapshot across all plugins
+  Project Details  → Deep dive hub (6 tabs)
+  Monitoring       → Full alert view from all plugins
+  Incidents        → Open issues needing action
+  Deployments      → Ship history + who pushed what
+  AI Assistant     → "What's wrong with my app right now?"
+  Integrations     → Plugin setup (lead configures once)
+  Settings         → Team management + provider config
+```
+
+---
+
+### Dashboard — Revised Layout
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Banner: Infrastructure Status  [Integrations] [Onboard Project] │
+├─────────────────────────────────────────────────────────────────┤
+│ 6 metric cards (existing — kept)                                │
+├─────────────────────────────────────────────────────────────────┤
+│ 3 charts: Deploy Success | Incident Activity | Alert Trend      │
+├──────────────────────────────────┬──────────────────────────────┤
+│ Service Health Widget (NEW)      │ Integration Health (updated) │
+│ ┌──────────┬──────────┬────────┐ │ Vercel API   ● 200 OK       │
+│ │ Grafana  │ Sentry   │Datadog │ │ Netlify CDN  ● ERROR        │
+│ │ p99:48ms │ 3 errors │ 2 mon  │ │ Grafana      ● 200 OK       │
+│ │ ✅ OK    │ ⚠ new    │ ⚠ warn│ │ Datadog      ● 200 OK       │
+│ └──────────┴──────────┴────────┘ │ Sentry       ● SYNCING      │
+│ ArgoCD: ● Synced | sha: a1b2c3d  │ ArgoCD       ● Synced (NEW) │
+├──────────────────────────────────┴──────────────────────────────┤
+│ Audit Trail (existing — scrollable h-[400px])                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Service Health Widget data sources:**
+```ts
+// Grafana: latest alert value from monitoringAlerts where source === 'grafana'
+// Sentry: sentryIssues.filter(i => i.status === 'unresolved').length
+//         sentryIssues.filter(i => new Date(i.firstSeen) > 24h ago).length
+// Datadog: monitoringAlerts.filter(a => a.source === 'datadog' && a.status === 'firing').length
+// ArgoCD: static mock in Phase 1.5 — real data in Phase 2
+```
+
+**ArgoCD status row in Integration Health panel:**
+```
+{ name: 'ArgoCD', status: 'synced', detail: 'Image: sha:a1b2c3d • Last sync: 2m ago' }
+// status options: 'synced' | 'out_of_sync' | 'degraded'
+// badge colors: synced=emerald, out_of_sync=amber, degraded=red
+```
+
+---
+
+### Project Details — 6-Tab Layout
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ ← Projects  │  Project Name  │  [Provider badge]  │  [Status]  │
+├─────────────────────────────────────────────────────────────────┤
+│ [Overview] [Deployments] [Monitoring] [Errors] [Infrastructure] [Team] │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  OVERVIEW (existing):                                           │
+│  Project info, repo, webhook, quick-action buttons              │
+│                                                                  │
+│  DEPLOYMENTS (existing):                                        │
+│  Deployment history table                                       │
+│                                                                  │
+│  MONITORING (NEW):                                              │
+│  ┌────────────────────────────────────────────────────────┐    │
+│  │ Active Alerts                               [View all →]│    │
+│  │ [GF] CPU > 85% • amber • 13:40              ↗ Monitor  │    │
+│  │ [DD] Login endpoint 5xx > 1% • red • 12:00  ↗ Monitor  │    │
+│  │ [SN] TypeError #248 • red • 11:31            ↗ Monitor  │    │
+│  └────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│  ERRORS (NEW):                                                  │
+│  ┌────────────────────────────────────────────────────────┐    │
+│  │ Unresolved Sentry Issues              [Ask AI about all]│    │
+│  │ ▼ TypeError assigneeDetails undefined  ERROR  248×      │    │
+│  │   Stack: TicketQueue.tsx:42 ...        [Ask AI]         │    │
+│  │ ▼ closeTicket is not a function        ERROR   53×      │    │
+│  └────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│  INFRASTRUCTURE (NEW):                                          │
+│  ┌────────────────────────────────────────────────────────┐    │
+│  │ ArgoCD Application: idp-backend-production              │    │
+│  │ Sync Status: ● Synced                                   │    │
+│  │ Current Image: ghcr.io/…/idp-backend:a1b2c3d           │    │
+│  │ Last Synced: 2 minutes ago                              │    │
+│  │ [Trigger Sync] [View Rollback History]                  │    │
+│  └────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│  TEAM (NEW):                                                    │
+│  ┌────────────────────────────────────────────────────────┐    │
+│  │ Team Members                              [Invite Member]│   │
+│  │ DM  Daksh Mulundkar  admin   daksh@... [Remove]         │    │
+│  │ SC  Sarah Chen       developer  s.chen@... [Edit][Remove]│   │
+│  │ DK  David Kim        viewer  d.kim@... [Edit][Remove]   │    │
+│  └────────────────────────────────────────────────────────┘    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Project Details Tab — Monitoring Tab Design
+
+**Layout:** Card with title + "View all →" link + alert list
+```
+bg-white/[0.03] border border-white/[0.06] rounded-xl p-5
+├── Header: "Active Alerts" + count badge + "View all →" → navigateTo('monitoring')
+└── Alert list (max 6, scrollable):
+    Each row: source badge | severity pill | title | value | time | → link
+```
+
+**Empty state:** "No active alerts from connected plugins. Configure Grafana, Datadog, or Sentry in Integrations."
+
+---
+
+### Project Details Tab — Errors Tab Design
+
+**Layout:** Card + Sentry issue rows with expand
+```
+bg-white/[0.03] border border-white/[0.06] rounded-xl p-5
+├── Header: "Unresolved Sentry Issues" + count + "Ask AI about all →" button
+├── Per issue row (collapsed by default):
+│   [SN] [fatal/error/warning pill] Title  COUNT× [expand ▼] [Ask AI]
+│   Expanded: stack trace in bg-black/40 font-mono text-[11px]
+│             First seen / Last seen / Release / Environment
+└── Empty state: "Sentry plugin not configured. Install it in Integrations."
+```
+
+**"Ask AI" button action:** `navigateTo('ai-assistant', { projectId, deploymentId: issue.deploymentId })`
+
+---
+
+### Project Details Tab — Infrastructure Tab Design
+
+**Mock data structure (Phase 1.5):**
+```ts
+interface ArgoCDAppStatus {
+  appName: string           // e.g. 'idp-backend-production'
+  syncStatus: 'Synced' | 'OutOfSync' | 'Degraded' | 'Unknown'
+  healthStatus: 'Healthy' | 'Progressing' | 'Degraded' | 'Suspended'
+  currentImageTag: string   // e.g. 'a1b2c3d'
+  lastSyncedAt: string      // ISO timestamp
+  repoUrl: string
+  targetRevision: string    // e.g. 'main'
+  namespace: string         // e.g. 'idp-production'
+}
+```
+
+**Layout:**
+```
+bg-white/[0.03] border border-white/[0.06] rounded-xl p-5
+├── Header: "Infrastructure" + ArgoCD sync badge
+├── KV rows: App Name | Sync Status | Health | Image Tag | Last Sync | Namespace
+├── Actions row:
+│   [Trigger Manual Sync] (calls audit log, shows "Sync triggered" toast)
+│   [View Rollback History] → navigateTo('rollback-recovery')
+└── Note: "⚠ Real ArgoCD data requires Phase 2 backend. Currently showing mock state."
+```
+
+**Sync status badge colors:**
+```ts
+'Synced'    → bg-emerald-500/10 text-emerald-400 border-emerald-500/20
+'OutOfSync' → bg-amber-500/10 text-amber-400 border-amber-500/20
+'Degraded'  → bg-red-500/10 text-red-400 border-red-500/20
+'Unknown'   → bg-zinc-500/10 text-zinc-400 border-zinc-500/20
+```
+
+---
+
+### Project Details Tab — Team Tab Design
+
+**New types needed:**
+```ts
+export type ProjectRole = 'viewer' | 'developer' | 'admin'
+
+export interface TeamMember {
+  id: string
+  userId: string
+  name: string
+  email: string
+  avatarUrl?: string
+  role: ProjectRole
+  projectId: string
+  addedAt: string
+  addedBy: string
+}
+```
+
+**Layout:**
+```
+bg-white/[0.03] border border-white/[0.06] rounded-xl p-5
+├── Header: "Team Members" + member count + [Invite Member] button (admin only)
+├── Member rows:
+│   [Avatar initials] Name  email  [role badge]  [Edit role ▾] [Remove ×]
+│   Role badge: viewer=zinc, developer=blue, admin=white/black
+│   Edit/Remove only visible to admin role users
+├── Invite modal (on [Invite Member] click):
+│   Email input + Role select (viewer/developer/admin) + [Send Invite] button
+└── Role capabilities note:
+    viewer: read-only access
+    developer: can comment, resolve incidents
+    admin: full access — rollback, plugin config, team management
+```
+
+---
+
+### Deployment Details — Plugin Signals Section
+
+**Added below the existing build stages panel:**
+```
+bg-white/[0.03] border border-white/[0.06] rounded-xl p-5
+├── Header: "Plugin Signals Near This Deployment"
+├── Sub-section: "Monitoring Alerts (±30 min)"
+│   Filter: monitoringAlerts where firedAt ∈ [deploy.createdAt - 30min, deploy.createdAt + 30min]
+│   Each alert: source badge | title | severity | fired at (relative to deploy time: "+5min" / "-10min")
+├── Sub-section: "Sentry Issues in This Release"
+│   Filter: sentryIssues where release === deploy.version
+│   Each issue: level pill | title | count | first seen
+│   [Ask AI] button: opens AI assistant with Sentry+logs context
+└── Empty state for each section if no signals found
+```
+
+---
+
+### Settings — Team Management Section
+
+**New section added to Settings page, below "User Profile":**
+```
+bg-white/[0.03] border border-white/[0.06] rounded-xl p-5
+├── Header: "Team Management"  [+ Invite Developer]
+├── Project selector (if user has multiple projects)
+├── Members table:
+│   MEMBER | EMAIL | ROLE | SINCE | ACTIONS
+│   [avatar] Name | email@... | [role badge] | Aug 19 | [Edit▾][Remove]
+├── Invite modal:
+│   "Invite to [Project Name]"
+│   Email: [input]
+│   Role: [viewer/developer/admin selector]
+│   [Send Invite] → creates TeamMember record, adds audit log
+└── Your own entry is shown but cannot be edited/removed by yourself
+```
+
+---
+
+### Role-Based UI Visibility Rules
+
+```ts
+// Applied throughout all pages based on user.role + TeamMember.role for the active project
+
+const canRollback = (role: ProjectRole) => role === 'admin'
+const canConfigurePlugins = (role: ProjectRole) => role === 'admin'
+const canManageTeam = (role: ProjectRole) => role === 'admin'
+const canResolveIncidents = (role: ProjectRole) => role === 'developer' || role === 'admin'
+const canAddComments = (role: ProjectRole) => role === 'developer' || role === 'admin'
+const canViewAll = (_role: ProjectRole) => true
+
+// Applied in:
+// - Rollback & Recovery: disable/hide buttons if !canRollback
+// - Integrations: disable configure/remove if !canConfigurePlugins
+// - Settings > Team: hide invite/remove if !canManageTeam
+// - Incidents: hide resolve if !canResolveIncidents
+```
+
+---
+
+### New Seed Data Required
+
+```ts
+// ArgoCDAppStatus mock (add to seedData.ts)
+export const mockArgoCDStatus: ArgoCDAppStatus = {
+  appName: 'idp-backend-production',
+  syncStatus: 'Synced',
+  healthStatus: 'Healthy',
+  currentImageTag: 'a1b2c3d',
+  lastSyncedAt: '2026-08-19T14:55:00Z',
+  repoUrl: 'https://github.com/Dakshmulundkar/Internal-Developer-Platform',
+  targetRevision: 'main',
+  namespace: 'idp-production',
+}
+
+// TeamMember seed (add to seedData.ts)
+export const initialTeamMembers: TeamMember[] = [
+  { id: 'tm1', userId: 'u1', name: 'Daksh Mulundkar', email: 'daksh.mulundkar@devcorp.com',
+    role: 'admin', projectId: 'p1', addedAt: '2026-01-10T08:00:00Z', addedBy: 'u1' },
+  { id: 'tm2', userId: 'u3', name: 'Sarah Chen', email: 'sarah.chen@devcorp.com',
+    role: 'developer', projectId: 'p1', addedAt: '2026-01-12T09:00:00Z', addedBy: 'u1' },
+  { id: 'tm3', userId: 'u2', name: 'David Kim', email: 'david.kim@devcorp.com',
+    role: 'developer', projectId: 'p1', addedAt: '2026-01-12T09:05:00Z', addedBy: 'u1' },
+]
+```

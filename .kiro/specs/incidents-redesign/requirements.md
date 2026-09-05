@@ -173,3 +173,75 @@ Redesign the Incidents page to match the reference UI (GitGuardian-style inciden
 - As an operator, I want ArgoCD to monitor the `k8s/` manifests directory and apply any drift corrections automatically
 - As an operator, I want to be able to roll back the backend to any previous deployment via ArgoCD's revision history without touching code
 - As an operator, I want each environment (dev/staging/production) represented as a separate ArgoCD Application targeting a different namespace
+
+---
+
+## Phase 1.5 — Single-Project Team UX + Plugin Data Display
+
+> These requirements address the real usage pattern: most users have **one project**, a small team of developers led by one person who configures the platform and invites teammates.
+
+### User Story 22: Project-Centric Dashboard
+- As a user with one project, I want the Dashboard to immediately show the health of my project without navigating elsewhere
+- As a user, I want the Dashboard to show: current deployment status, error count from Sentry, active Grafana/Datadog alerts, ArgoCD infrastructure sync status, and recent team activity — all scoped to my project(s)
+- As a user, the existing multi-project metric cards should still work but show project-specific data when I have only one project
+
+### User Story 23: Project Details — Monitoring Tab
+- As a user, I want a "Monitoring" tab inside Project Details that shows all Grafana and Datadog alerts scoped to this project
+- As a user, I want to see the current state of each alert: severity, value vs threshold, source badge, fired time
+- As a user, I want a link from each alert to the full Monitoring page
+
+### User Story 24: Project Details — Errors Tab
+- As a user, I want an "Errors" tab inside Project Details showing all Sentry issues linked to this project
+- As a user, I want to see: issue title, level (fatal/error/warning), occurrence count, first seen, last seen, and release version
+- As a user, I want to expand a Sentry issue inline to see its stack trace
+- As a user, I want clicking an issue to open the AI assistant with that Sentry error as context
+
+### User Story 25: Project Details — Infrastructure Tab
+- As a user, I want an "Infrastructure" tab inside Project Details showing the ArgoCD deployment state of the backend
+- As a user, I want to see: ArgoCD app name, sync status (Synced/OutOfSync/Degraded), current deployed image tag (Git SHA), last sync timestamp
+- As a user, I want a "Trigger Manual Sync" button that records the action in the audit log
+- As a user, I want a rollback-to-previous-revision option linking to the Rollback & Recovery page
+
+### User Story 26: Project Details — Team Tab
+- As a team lead (admin role), I want to see all team members who have access to this project
+- As a team lead, I want to invite a new developer by email with a role: viewer | developer | admin
+- As a team lead, I want to remove a member from the project
+- As a developer, I want to see my own role and the other members of the project
+- Roles: `viewer` (read-only), `developer` (can comment and resolve incidents), `admin` (full access including rollback and plugin config)
+
+### User Story 27: Deployment Details — Plugin Context Panel
+- As a user, I want to see a "Plugin Signals" section on the Deployment Details page
+- As a user, I want to see Grafana/Datadog alerts that fired within ±30 minutes of this deployment
+- As a user, I want to see Sentry issues that were first introduced in this deployment's release version
+- As a user, each signal links to the full alert/issue detail
+
+### User Story 28: ArgoCD Data on Dashboard
+- As an operator, I want to see ArgoCD sync status in the Integration Health panel on the Dashboard
+- As an operator, I want to see: app name, Synced/OutOfSync/Degraded status, last sync time, and current image tag
+- As an operator, "OutOfSync" or "Degraded" states should show in amber/red to draw attention
+
+### User Story 29: Service Health Widget on Dashboard
+- As a user, I want a "Service Health" widget on the Dashboard showing live plugin metrics:
+  - Grafana: current p99 latency (if configured)
+  - Sentry: unresolved error count and new errors in last 24h
+  - Datadog: number of monitors currently alerting
+- As a user, these metrics update every time the plugin syncs
+
+### User Story 30: Deployment Details — Sentry Release Linkage
+- As a user, I want Deployment Details to show Sentry issues introduced in the same release version as this deployment
+- As a user, I want to see: issue title, level, count, first seen
+- As a user, I want "Ask AI" to analyze these Sentry issues alongside the build logs
+
+### User Story 31: Settings — Team Management
+- As a team lead, I want a "Team Management" section in Settings
+- As a team lead, I want to see all users who have access to any of my projects
+- As a team lead, I want to invite a new user: enter email → assign role → send invite
+- As a team lead, I want to edit a user's role or remove them
+- As a developer, I want to see which projects I have access to and my role on each
+- Team management is scoped per project — a user can have different roles on different projects
+
+### User Story 32: Scoped Data — Developers Only See Their Projects
+- As a developer (non-admin), I want to see only the projects I have been granted access to
+- As a developer, I should not be able to see projects belonging to other teams or team leads
+- As a developer with viewer role, rollback buttons and plugin configuration should be disabled/hidden
+- As a developer with developer role, I can add comments and resolve incidents but cannot rollback or configure plugins
