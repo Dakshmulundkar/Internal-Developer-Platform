@@ -1,17 +1,22 @@
 """Authentication router.
 
 Endpoints:
-    POST /auth/register   — create a new account via Supabase Auth
-    POST /auth/login      — sign in and receive JWT tokens
-    POST /auth/github     — sign in via GitHub Personal Access Token
-    POST /auth/logout     — invalidate the current session
-    GET  /auth/me         — return the authenticated user's profile
+    POST /auth/register          — create a new account via Supabase Auth
+    POST /auth/login             — sign in and receive JWT tokens
+    GET  /auth/github/oauth      — redirect to GitHub OAuth authorization page
+    GET  /auth/github/callback   — handle GitHub OAuth callback, return JWT
+    POST /auth/github            — sign in via GitHub Personal Access Token (legacy)
+    POST /auth/logout            — invalidate the current session
+    GET  /auth/me                — return the authenticated user's profile
 """
 
+import hashlib
 import logging
+import urllib.parse
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
 
 from config import settings
 from database import supabase
@@ -107,9 +112,192 @@ async def login(body: LoginRequest) -> dict:
     }
 
 
+@router.get("/github/oauth")
+async def github_oauth_redirect() -> RedirectResponse:
+    """Redirect the user to GitHub's OAuth authorization page.
+
+    The frontend opens this URL (or redirects to it).
+    GitHub will redirect back to /auth/github/callback with a code.
+    """
+    if not settings.GITHUB_CLIENT_ID:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="GITHUB_CLIENT_ID is not configured in backend/.env",
+        )
+
+    params = urllib.parse.urlencode({
+        "client_id": settings.GITHUB_CLIENT_ID,
+        "scope": "read:user user:email repo write:repo_hook",
+        "redirect_uri": "http://localhost:8000/auth/github/callback",
+    })
+    return RedirectResponse(url=f"https://github.com/login/oauth/authorize?{params}")
+
+
+@router.get("/github/callback")
+async def github_oauth_callback(code: str = Query(...)) -> RedirectResponse:
+    """Handle the OAuth callback from GitHub.
+
+    Flow:
+    1. Exchange the code for a GitHub access token
+    2. Fetch the user's profile and email from GitHub
+    3. Create or update the user in Supabase Auth
+    4. Redirect the frontend to /#/auth/github?token=<jwt>
+    """
+    if not settings.GITHUB_CLIENT_ID or not settings.GITHUB_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="GitHub OAuth is not configured. Add GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET to backend/.env",
+        )
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        # Step 1: Exchange code for access token
+        token_resp = await client.post(
+            "https://github.com/login/oauth/access_token",
+            headers={"Accept": "application/json"},
+            data={
+                "client_id": settings.GITHUB_CLIENT_ID,
+                "client_secret": settings.GITHUB_CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": "http://localhost:8000/auth/github/callback",
+            },
+        )
+        token_data = token_resp.json()
+        gh_access_token: str = token_data.get("access_token", "")
+        if not gh_access_token:
+            error = token_data.get("error_description", "GitHub token exchange failed")
+            return RedirectResponse(url=f"http://localhost:5173/?github_error={urllib.parse.quote(error)}")
+
+        # Step 2: Fetch user profile
+        gh_headers = {
+            "Authorization": f"Bearer {gh_access_token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        user_resp = await client.get("https://api.github.com/user", headers=gh_headers)
+        gh_user = user_resp.json() if user_resp.status_code == 200 else {}
+
+        # Step 3: Get primary verified email
+        email: str = gh_user.get("email") or ""
+        if not email:
+            try:
+                emails_resp = await client.get("https://api.github.com/user/emails", headers=gh_headers)
+                if emails_resp.status_code == 200:
+                    for e in emails_resp.json():
+                        if e.get("primary") and e.get("verified"):
+                            email = e["email"]
+                            break
+            except Exception:
+                pass
+
+    github_username: str = gh_user.get("login", "")
+    display_name: str = gh_user.get("name") or github_username or (email.split("@")[0] if email else "Developer")
+    avatar_url: str = gh_user.get("avatar_url", "")
+
+    if not email:
+        email = f"{github_username}@users.noreply.github.com"
+
+    # Step 4: Create or update Supabase user
+    if not settings.SUPABASE_SERVICE_KEY:
+        return RedirectResponse(url="http://localhost:5173/?github_error=SUPABASE_SERVICE_KEY+not+configured")
+
+    from supabase import create_client
+    admin_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+
+    derived_password = hashlib.sha256(
+        f"idp-gh-oauth-{gh_access_token[:20]}-{email}".encode()
+    ).hexdigest()
+
+    try:
+        existing_users = admin_client.auth.admin.list_users()
+        existing_user = next((u for u in existing_users if u.email == email), None)
+    except Exception:
+        existing_user = None
+
+    user_metadata = {
+        "name": display_name,
+        "user_name": github_username,
+        "avatar_url": avatar_url,
+        "provider": "github",
+        "role": "admin",
+        "github_access_token": gh_access_token,  # stored server-side for repo access
+    }
+
+    if existing_user is None:
+        try:
+            admin_client.auth.admin.create_user({
+                "email": email,
+                "password": derived_password,
+                "email_confirm": True,
+                "user_metadata": user_metadata,
+            })
+        except Exception as exc:
+            logger.error("Failed to create Supabase user: %s", exc)
+            return RedirectResponse(url=f"http://localhost:5173/?github_error={urllib.parse.quote(str(exc))}")
+    else:
+        try:
+            admin_client.auth.admin.update_user_by_id(str(existing_user.id), {
+                "user_metadata": user_metadata,
+                "password": derived_password,
+            })
+        except Exception:
+            pass
+
+    # Sign in to get a Supabase JWT
+    try:
+        session_resp = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": derived_password,
+        })
+        jwt = session_resp.session.access_token if session_resp.session else ""
+        user_id = str(session_resp.user.id) if session_resp.user else ""
+    except Exception as exc:
+        logger.error("Supabase sign-in failed after GitHub OAuth: %s", exc)
+        return RedirectResponse(url=f"http://localhost:5173/?github_error={urllib.parse.quote(str(exc))}")
+
+    # Auto-install GitHub plugin in Supabase (best-effort)
+    if user_id:
+        try:
+            existing_plugin = (
+                supabase.table("plugin_installations")
+                .select("id")
+                .eq("installed_by", user_id)
+                .eq("plugin_id", "plugin-github")
+                .execute()
+            )
+            plugin_data = {
+                "plugin_id": "plugin-github",
+                "plugin_name": "GitHub",
+                "category": "source_control",
+                "status": "connected",
+                "api_key_encrypted": gh_access_token,
+                "project_selector": github_username,
+                "config_data": {"username": github_username, "avatar_url": avatar_url},
+                "last_sync_at": "now()",
+                "installed_by": user_id,
+                "enabled_for_projects": [],
+            }
+            if existing_plugin.data:
+                supabase.table("plugin_installations").update(plugin_data).eq("id", existing_plugin.data[0]["id"]).execute()
+            else:
+                supabase.table("plugin_installations").insert(plugin_data).execute()
+        except Exception as exc:
+            logger.warning("GitHub plugin install failed (non-fatal): %s", exc)
+
+    # Redirect frontend with JWT + user info in query params
+    params = urllib.parse.urlencode({
+        "token": jwt,
+        "name": display_name,
+        "email": email,
+        "avatar": avatar_url,
+        "github": github_username,
+        "gh_token": gh_access_token,  # needed for /auth/github/setup
+    })
+    return RedirectResponse(url=f"http://localhost:5173/#/auth/github/success?{params}")
+
+
 @router.post("/github")
 async def github_login(body: GithubLoginRequest) -> dict:
-    """Sign in using a GitHub Personal Access Token.
+    """Sign in using a GitHub Personal Access Token (legacy — kept for compatibility).
 
     Flow:
     1. Validate the PAT by calling GitHub's /user API

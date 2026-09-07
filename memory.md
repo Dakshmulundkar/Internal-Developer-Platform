@@ -38,8 +38,8 @@ A **centralized control-plane web application** for software teams. It connects 
 |-------|--------|-------|
 | Phase 1 — Frontend UI Redesign | ✅ Complete | Incidents page fully rebuilt |
 | Phase 1.5 — Team UX + Plugin Data | ✅ Complete | All 13 tasks done, build passes |
-| Phase 2 — Backend (FastAPI) | 📋 Spec ready | Not started |
-| Phase 2 — Infrastructure (K8s/ArgoCD) | 📋 Spec ready | Not started |
+| Phase 2 — Backend (FastAPI) | ✅ Complete | Teammate's PR merged — live backend running |
+| Phase 2 — Infrastructure (K8s/ArgoCD) | ✅ Complete | Manifests in k8s/ and argocd/ directories |
 
 ---
 

@@ -8,7 +8,9 @@
 
 export const API_BASE = import.meta.env.VITE_API_URL || '';
 
-export const isApiAvailable = (): boolean => Boolean(import.meta.env.VITE_API_URL);
+// isApiAvailable: true when VITE_USE_API=true (proxy mode) OR VITE_API_URL is set (direct mode)
+export const isApiAvailable = (): boolean =>
+  Boolean(import.meta.env.VITE_USE_API) || Boolean(import.meta.env.VITE_API_URL);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Core fetch helper

@@ -7,7 +7,7 @@
     "dev": "concurrently --names \"vite,api\" --prefix-colors \"cyan,magenta\" \"vite\" \"npm run backend\"",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "backend": "cd backend && uvicorn main:app --reload",
+    "backend": "cd backend && venv\\Scripts\\uvicorn main:app --reload --port 8000",
     "frontend": "vite"
   },
   "dependencies": {

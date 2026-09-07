@@ -553,19 +553,93 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Auth Operations
   const loginUser = async (email: string, passwordOrProvider?: string) => {
     const isGitHub = passwordOrProvider === 'GitHub';
+    const isGitHubOAuth = passwordOrProvider === 'GitHubOAuth';
     const isGoogle = passwordOrProvider === 'Google';
 
     if (isApiAvailable()) {
       // API mode — real authentication only, no demo fallback
       try {
         if (isGoogle) {
-          // Google OAuth not implemented — show error
-          alert('Google login is not configured yet. Please use email/password or GitHub PAT.');
+          alert('Google login is not configured yet. Please use email/password or GitHub.');
+          return;
+        }
+
+        // ── GitHub OAuth callback — token + user info packed into email param ──
+        if (isGitHubOAuth) {
+          // Format: __oauth__<jwt>__<email>__<name>__<avatar>__<username>__<ghToken>
+          const parts = email.split('__');
+          // parts: ['', 'oauth', jwt, email, name, avatar, username, ghToken]
+          const jwt = parts[2] || '';
+          const ghEmail = parts[3] || '';
+          const ghName = parts[4] || 'Developer';
+          const ghAvatar = parts[5] || '';
+          const ghUsername = parts[6] || '';
+          const ghToken = parts[7] || '';
+
+          if (!jwt) {
+            alert('GitHub OAuth failed — no token received. Please try again.');
+            return;
+          }
+
+          const oauthUser: User = {
+            id: 'gh_oauth_' + ghUsername,
+            name: ghName,
+            email: ghEmail,
+            avatarUrl: ghAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&h=80&q=80',
+            role: 'admin',
+            connectedGithub: ghUsername,
+            connectedVercel: false,
+            connectedNetlify: false,
+          };
+
+          localStorage.setItem('idp_jwt', jwt);
+          setUser(oauthUser);
+
+          // Fetch repos and set up GitHub plugin in background
+          if (ghToken) {
+            try {
+              const setup = await api.auth.githubSetup(ghToken);
+              if (setup.repos && setup.repos.length > 0) {
+                const existingNames = new Set((projects as Array<{repoName: string}>).map(p => p.repoName));
+                const newProjects = setup.repos
+                  .filter(r => !existingNames.has(r.name))
+                  .slice(0, 20)
+                  .map(r => ({
+                    id: 'gh_' + r.id,
+                    name: r.name,
+                    description: r.description || `GitHub repo: ${r.full_name}`,
+                    repoOwner: r.owner,
+                    repoName: r.name,
+                    branch: r.default_branch,
+                    provider: 'vercel' as const,
+                    environment: 'production' as const,
+                    status: 'queued' as const,
+                    createdAt: r.pushed_at || new Date().toISOString(),
+                    ownerId: oauthUser.id,
+                  }));
+                if (newProjects.length > 0) {
+                  setProjects(prev => [...newProjects, ...prev]);
+                }
+              }
+            } catch {
+              // Setup is best-effort — login still succeeds
+            }
+          }
+
+          setAuditLogs(prev => [{
+            id: 'a_' + Math.random().toString(36).substr(2, 9),
+            userId: oauthUser.id, userName: oauthUser.name,
+            action: 'USER_LOGIN',
+            details: 'Signed in via GitHub OAuth. GitHub integration auto-configured.',
+            createdAt: new Date().toISOString()
+          }, ...prev]);
+          connectWebSocket(oauthUser.id);
+          navigateTo('dashboard');
           return;
         }
 
         if (isGitHub) {
-          // GitHub PAT login
+          // Legacy PAT login (kept for backwards compatibility)
           const ghResult = await api.auth.loginGithub(email);
           if (!ghResult.access_token) {
             alert('GitHub login succeeded but no session was created. Please try email/password login instead.');
@@ -584,7 +658,6 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           localStorage.setItem('idp_jwt', ghResult.access_token);
           setUser(apiUser);
 
-          // Auto-install GitHub integration + fetch repos in background
           try {
             const setup = await api.auth.githubSetup(email);
             if (setup.repos && setup.repos.length > 0) {

@@ -28,6 +28,7 @@ backend/.env
 
 # Frontend local env
 .env.local
+.env
 
 # Kubernetes secrets (never commit real values)
 k8s/**/secret.yaml
@@ -39,5 +40,6 @@ __pycache__/
 *.pyo
 .pytest_cache/
 *.egg-info/
+backend/venv/
 
 .env.production

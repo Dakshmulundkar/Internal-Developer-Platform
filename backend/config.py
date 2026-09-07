@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
 
+    # ── GitHub OAuth App ─────────────────────────────────────────────────────
+    GITHUB_CLIENT_ID: str = ""
+    GITHUB_CLIENT_SECRET: str = ""
+
     # ── CORS ──────────────────────────────────────────────────────────────────
     CORS_ORIGINS: str = "http://localhost:5173"
 
