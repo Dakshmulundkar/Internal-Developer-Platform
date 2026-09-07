@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { api, isApiAvailable } from '../services/api';
 import type { 
   Project, Deployment, Incident, RollbackOperation, Notification, AuditLog, User,
   DeploymentStatus, IncidentStatus, IncidentSeverity, ProviderType, EnvironmentType,
@@ -64,7 +65,8 @@ interface PlatformContextProps {
   
   // Core Actions
   createProject: (projectData: Omit<Project, 'id' | 'createdAt' | 'ownerId' | 'status' | 'webhookUrl' | 'webhookSecret'>) => void;
-  startRollback: (projectId: string, targetDeploymentId: string) => void;
+  updateProject: (id: string, updates: Partial<Project>) => void;
+  startRollback: (projectId: string, targetDeploymentId: string) => Promise<void>;
   addComment: (incidentId: string, content: string) => void;
   resolveIncident: (incidentId: string) => void;
   markNotificationAsRead: (notificationId: string) => void;
@@ -73,8 +75,12 @@ interface PlatformContextProps {
   // Plugin Actions
   installPlugin: (pluginId: string) => void;
   uninstallPlugin: (installationId: string) => void;
-  updatePluginConfig: (installationId: string, config: Partial<PluginInstallation>) => void;
+  updatePluginConfig: (installationId: string, config: Partial<PluginInstallation> & { apiKey?: string }) => Promise<void>;
   
+  // Data Sync
+  refreshData: () => Promise<void>;
+  syncDeployments: (projectId: string) => Promise<void>;
+
   // Incident Update
   updateIncident: (incidentId: string, updates: Partial<Incident>) => void;
 
@@ -91,53 +97,107 @@ interface PlatformContextProps {
 const PlatformContext = createContext<PlatformContextProps | undefined>(undefined);
 
 export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // In API mode, wipe stale seed data from localStorage on startup so it never shows.
+  // This runs once synchronously before any state is initialized.
+  if (import.meta.env.VITE_API_URL && !localStorage.getItem('idp_jwt')) {
+    const seedKeys = [
+      'idp_projects', 'idp_deployments', 'idp_incidents', 'idp_rollbacks',
+      'idp_notifications', 'idp_audit', 'idp_plugins', 'idp_alerts',
+    ];
+    seedKeys.forEach(k => localStorage.removeItem(k));
+  }
+
+  // Helper: in API mode, always start empty (no seed data)
+  const isApiMode = Boolean(import.meta.env.VITE_API_URL);
+  const hasJwt = Boolean(localStorage.getItem('idp_jwt'));
+
   // Load initial states from localStorage if available, else use seed data
   const [user, setUser] = useState<User | null>(() => {
+    // Only restore user if we have a valid JWT token (API mode)
+    // or if we're in demo mode (no VITE_API_URL)
+    const apiUrl = import.meta.env.VITE_API_URL;
+    if (apiUrl) {
+      // API mode — only restore if JWT exists and looks valid
+      const jwt = localStorage.getItem('idp_jwt');
+      if (!jwt) return null; // No token → go to login
+      // Basic JWT expiry check (decode payload, check exp)
+      try {
+        const payload = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        if (payload.exp && payload.exp * 1000 < Date.now()) {
+          // Token expired — clear and go to login
+          localStorage.removeItem('idp_jwt');
+          localStorage.removeItem('idp_user');
+          return null;
+        }
+        // Token valid — restore user
+        const saved = localStorage.getItem('idp_user');
+        if (saved) {
+          try { return JSON.parse(saved); } catch { return null; }
+        }
+        return null;
+      } catch {
+        localStorage.removeItem('idp_jwt');
+        localStorage.removeItem('idp_user');
+        return null;
+      }
+    }
+    // Demo mode — restore from localStorage
     const saved = localStorage.getItem('idp_user');
-    return saved ? JSON.parse(saved) : initialUser;
+    if (saved) {
+      try { return JSON.parse(saved); } catch { /* ignore */ }
+    }
+    return null;
   });
 
   const [projects, setProjects] = useState<Project[]>(() => {
     const saved = localStorage.getItem('idp_projects');
+    if (isApiMode) return saved ? JSON.parse(saved) : [];
     return saved ? JSON.parse(saved) : initialProjects;
   });
 
   const [deployments, setDeployments] = useState<Deployment[]>(() => {
     const saved = localStorage.getItem('idp_deployments');
+    if (isApiMode) return saved ? JSON.parse(saved) : [];
     return saved ? JSON.parse(saved) : initialDeployments;
   });
 
   const [incidents, setIncidents] = useState<Incident[]>(() => {
     const saved = localStorage.getItem('idp_incidents');
+    if (isApiMode) return saved ? JSON.parse(saved) : [];
     return saved ? JSON.parse(saved) : initialIncidents;
   });
 
   const [rollbackOperations, setRollbackOperations] = useState<RollbackOperation[]>(() => {
     const saved = localStorage.getItem('idp_rollbacks');
+    if (isApiMode) return saved ? JSON.parse(saved) : [];
     return saved ? JSON.parse(saved) : initialRollbackOperations;
   });
 
   const [notifications, setNotifications] = useState<Notification[]>(() => {
     const saved = localStorage.getItem('idp_notifications');
+    if (isApiMode) return saved ? JSON.parse(saved) : [];
     return saved ? JSON.parse(saved) : initialNotifications;
   });
 
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => {
     const saved = localStorage.getItem('idp_audit');
+    if (isApiMode) return saved ? JSON.parse(saved) : [];
     return saved ? JSON.parse(saved) : initialAuditLogs;
   });
 
   const [pluginInstallations, setPluginInstallations] = useState<PluginInstallation[]>(() => {
     const saved = localStorage.getItem('idp_plugins');
+    if (isApiMode) return saved ? JSON.parse(saved) : [];
     return saved ? JSON.parse(saved) : initialPluginInstallations;
   });
 
   const [monitoringAlerts, setMonitoringAlerts] = useState<MonitoringAlert[]>(() => {
     const saved = localStorage.getItem('idp_alerts');
+    if (isApiMode) return saved ? JSON.parse(saved) : [];
     return saved ? JSON.parse(saved) : initialMonitoringAlerts;
   });
 
-  const [sentryIssues] = useState<SentryIssue[]>(initialSentryIssues);
+  const [sentryIssues] = useState<SentryIssue[]>(() => isApiMode ? [] : initialSentryIssues);
 
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>(() => {
     const saved = localStorage.getItem('idp_team');
@@ -146,8 +206,19 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Navigation Context
   const [currentPage, setCurrentPage] = useState<PageType>(() => {
-    const saved = localStorage.getItem('idp_page');
-    return (saved as PageType) || 'login';
+    // Only restore page if we have a valid JWT (API mode) or saved user (demo mode)
+    const jwt = localStorage.getItem('idp_jwt');
+    const apiUrl = import.meta.env.VITE_API_URL;
+    const savedPage = localStorage.getItem('idp_page') as PageType;
+    if (apiUrl) {
+      // API mode — only restore page if JWT exists
+      if (jwt && savedPage && savedPage !== 'login') return savedPage;
+      return 'login';
+    }
+    // Demo mode — restore if saved user exists
+    const savedUser = localStorage.getItem('idp_user');
+    if (savedUser && savedUser !== 'null' && savedPage && savedPage !== 'login') return savedPage;
+    return 'login';
   });
 
   const [activeProjectId, setActiveProjectId] = useState<string | null>(() => {
@@ -165,6 +236,11 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [activePluginId, setActivePluginId] = useState<string | null>(() => {
     return localStorage.getItem('idp_active_plugin');
   });
+
+  // WebSocket ref for real-time updates
+  const wsRef = useRef<WebSocket | null>(null);
+  const wsReconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wsReconnectDelayRef = useRef<number>(1000);
 
   // Sync to localStorage
   useEffect(() => {
@@ -211,6 +287,180 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.setItem('idp_page', currentPage);
   }, [currentPage]);
 
+  // Fix 2: After restoring user from JWT on page load, navigate away from login
+  useEffect(() => {
+    if (user && currentPage === 'login') {
+      setCurrentPage('dashboard');
+    }
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Mappers: snake_case API rows → camelCase frontend types ───────────────
+  const mapRemoteProject = (r: Record<string, unknown>): Project => ({
+    id: r.id as string,
+    name: (r.name as string) || '',
+    description: (r.description as string) || '',
+    repoOwner: (r.repo_owner as string) || '',
+    repoName: (r.repo_name as string) || '',
+    branch: (r.branch as string) || 'main',
+    provider: (r.provider as ProviderType) || 'vercel',
+    environment: (r.environment as EnvironmentType) || 'production',
+    status: (r.status as DeploymentStatus) || 'queued',
+    createdAt: (r.created_at as string) || new Date().toISOString(),
+    ownerId: (r.owner_id as string) || '',
+    vercelProjectId: r.vercel_project_id as string | undefined,
+    netlifySiteId: r.netlify_site_id as string | undefined,
+    webhookUrl: r.webhook_url as string | undefined,
+  });
+
+  const mapRemoteDeployment = (r: Record<string, unknown>, projectName?: string): Deployment => ({
+    id: r.id as string,
+    projectId: (r.project_id as string) || '',
+    projectName: projectName || (r.project_id as string) || '',
+    version: (r.version as string) || (r.external_event_id as string) || 'unknown',
+    status: ((r.status as string) || 'queued') as DeploymentStatus,
+    commitHash: (r.commit_hash as string) || '',
+    commitMessage: (r.commit_message as string) || '',
+    branch: (r.branch as string) || 'main',
+    author: (r.author as string) || '',
+    authorAvatar: r.author_avatar as string | undefined,
+    provider: (r.provider as ProviderType) || 'vercel',
+    durationMs: (r.duration_ms as number) || 0,
+    createdAt: (r.created_at as string) || new Date().toISOString(),
+    url: r.url as string | undefined,
+    errorMessage: r.error_message as string | undefined,
+  });
+
+  const mapRemoteIncident = (r: Record<string, unknown>): Incident => ({
+    id: r.id as string,
+    projectId: (r.project_id as string) || '',
+    projectName: '',
+    deploymentId: r.deployment_id as string | undefined,
+    severity: ((r.severity as string) || 'high') as IncidentSeverity,
+    provider: ((r.provider as string) || 'vercel') as ProviderType,
+    title: (r.title as string) || 'Incident',
+    description: (r.description as string) || '',
+    status: ((r.status as string) || 'open') as IncidentStatus,
+    assignedTo: r.assigned_to as string | undefined,
+    createdAt: (r.created_at as string) || new Date().toISOString(),
+    resolvedAt: r.resolved_at as string | undefined,
+    ignoredReason: r.ignored_reason as string | undefined,
+    feedbackIsReal: r.feedback_is_real as boolean | undefined,
+    feedbackComment: r.feedback_comment as string | undefined,
+    suggestedAction: r.suggested_action as string | undefined,
+    comments: [],
+    timeline: [],
+  });
+
+  const mapRemoteAlert = (r: Record<string, unknown>): MonitoringAlert => ({
+    id: r.id as string,
+    source: ((r.source as string) || 'grafana') as MonitoringAlert['source'],
+    title: (r.title as string) || 'Alert',
+    description: (r.description as string) || '',
+    severity: ((r.severity as string) || 'medium') as MonitoringAlert['severity'],
+    status: ((r.status as string) || 'firing') as MonitoringAlert['status'],
+    projectId: r.project_id as string | undefined,
+    deploymentId: r.deployment_id as string | undefined,
+    incidentId: r.incident_id as string | undefined,
+    labels: r.labels as Record<string, string> | undefined,
+    value: r.value as string | undefined,
+    threshold: r.threshold as string | undefined,
+    firedAt: (r.fired_at as string) || new Date().toISOString(),
+    resolvedAt: r.resolved_at as string | undefined,
+  });
+
+  const mapRemotePlugin = (r: Record<string, unknown>): PluginInstallation => {
+    const cfg = (r.config_data as Record<string, unknown>) || {};
+    return {
+      id: r.id as string,
+      pluginId: (r.plugin_id as string) || '',
+      pluginName: (r.plugin_name as string) || '',
+      category: ((r.category as string) || 'deployment') as PluginInstallation['category'],
+      status: ((r.status as string) || 'disconnected') as PluginInstallation['status'],
+      apiKeyHint: (r.api_key_hint as string) || (cfg.api_key_hint as string) || '',
+      baseUrl: (r.base_url as string) || '',
+      projectSelector: (r.project_selector as string) || '',
+      webhookUrl: r.webhook_url as string | undefined,
+      lastSyncAt: r.last_sync_at as string | undefined,
+      installedAt: (r.created_at as string) || new Date().toISOString(),
+      installedById: (r.installed_by as string) || '',
+      enabledForProjects: (r.enabled_for_projects as string[]) || [],
+    };
+  };
+
+  const mapRemoteAuditLog = (r: Record<string, unknown>): AuditLog => ({
+    id: r.id as string,
+    userId: (r.user_id as string) || '',
+    userName: (r.user_name as string) || 'System',
+    action: (r.action as string) || '',
+    projectId: r.project_id as string | undefined,
+    details: (r.details as string) || '',
+    createdAt: (r.created_at as string) || new Date().toISOString(),
+  });
+
+  // Refresh live data from API
+  const refreshData = async () => {
+    if (!isApiAvailable() || !user) return;
+    try {
+      const [remoteProjects, remoteIncidents, remoteNotifications, remoteDeployments, remoteAlerts, remotePlugins, remoteAudit] = await Promise.all([
+        api.projects.list().catch(() => null),
+        api.incidents.list().catch(() => null),
+        api.notifications.list().catch(() => null),
+        api.deployments.list().catch(() => null),
+        api.monitoring.getAlerts().catch(() => null),
+        api.plugins.list().catch(() => null),
+        api.audit.list(50).catch(() => null),
+      ]);
+
+      let projectMap = new Map<string, string>();
+      if (remoteProjects) {
+        const mapped = (remoteProjects as Record<string, unknown>[]).map(mapRemoteProject);
+        setProjects(mapped);
+        projectMap = new Map(mapped.map(p => [p.id, p.name]));
+      }
+
+      if (remoteDeployments) {
+        const deps = (remoteDeployments as Record<string, unknown>[]).map(d => mapRemoteDeployment(d, projectMap.get(d.project_id as string)));
+        setDeployments(deps);
+      }
+
+      if (remoteIncidents) {
+        const incs = (remoteIncidents as Record<string, unknown>[]).map(r => ({
+          ...mapRemoteIncident(r),
+          projectName: projectMap.get(r.project_id as string) || '',
+        }));
+        setIncidents(incs);
+      }
+
+      if (remoteNotifications) setNotifications(remoteNotifications as Notification[]);
+      if (remoteAlerts) setMonitoringAlerts((remoteAlerts as Record<string, unknown>[]).map(mapRemoteAlert));
+      if (remotePlugins) setPluginInstallations((remotePlugins as Record<string, unknown>[]).map(mapRemotePlugin));
+      if (remoteAudit) setAuditLogs((remoteAudit as Record<string, unknown>[]).map(mapRemoteAuditLog));
+    } catch (err) {
+      console.warn('[PlatformContext] refreshData error:', err);
+    }
+  };
+
+  const syncDeployments = async (projectId: string) => {
+    if (!isApiAvailable()) return;
+    try {
+      await api.deployments.sync(projectId);
+      await refreshData();
+    } catch (err) {
+      console.error('[deployments] sync failed:', err);
+    }
+  };
+
+  // Fetch live data from API on login and poll periodically
+  useEffect(() => {
+    if (!isApiAvailable() || !user) return;
+    // Clear any stale localStorage before loading from API
+    ['idp_projects','idp_incidents','idp_notifications','idp_deployments','idp_plugins','idp_alerts','idp_audit'].forEach(k => localStorage.removeItem(k));
+    refreshData();
+
+    const interval = setInterval(refreshData, 10000);
+    return () => clearInterval(interval);
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Navigation Helper
   const navigateTo = (page: PageType, contextIds?: { projectId?: string; deploymentId?: string; incidentId?: string; pluginId?: string }) => {
     if (contextIds?.projectId) {
@@ -238,29 +488,214 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  // WebSocket connection helper with exponential backoff
+  const connectWebSocket = (userId: string) => {
+    const wsUrl = import.meta.env.VITE_WS_URL;
+    if (!wsUrl) return;
+
+    // Clear any pending reconnect timer
+    if (wsReconnectTimeoutRef.current) {
+      clearTimeout(wsReconnectTimeoutRef.current);
+      wsReconnectTimeoutRef.current = null;
+    }
+
+    const ws = new WebSocket(`${wsUrl}/ws/${userId}`);
+    wsRef.current = ws;
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data) as { type: string; data: Record<string, unknown> };
+        switch (msg.type) {
+          case 'deployment.status_changed':
+            setDeployments(prev =>
+              prev.map(d => d.id === msg.data.id ? { ...d, ...(msg.data as Partial<Deployment>) } : d)
+            );
+            break;
+          case 'incident.created':
+            setIncidents(prev => [msg.data as Incident, ...prev]);
+            break;
+          case 'rollback.progress':
+            setRollbackOperations(prev =>
+              prev.map(r => r.id === msg.data.id ? { ...r, ...(msg.data as Partial<RollbackOperation>) } : r)
+            );
+            break;
+          case 'notification.new':
+            setNotifications(prev => [msg.data as Notification, ...prev]);
+            break;
+          default:
+            break;
+        }
+      } catch {
+        // ignore malformed messages
+      }
+    };
+
+    ws.onclose = () => {
+      wsRef.current = null;
+      // Exponential backoff: 1s → 2s → 4s → 8s → 16s → 30s cap
+      const delay = Math.min(wsReconnectDelayRef.current, 30000);
+      wsReconnectTimeoutRef.current = setTimeout(() => {
+        wsReconnectDelayRef.current = Math.min(delay * 2, 30000);
+        connectWebSocket(userId);
+      }, delay);
+    };
+
+    ws.onerror = () => {
+      ws.close();
+    };
+
+    ws.onopen = () => {
+      // Reset backoff on successful connection
+      wsReconnectDelayRef.current = 1000;
+    };
+  };
+
   // Auth Operations
-  const loginUser = (email: string, provider?: string) => {
+  const loginUser = async (email: string, passwordOrProvider?: string) => {
+    const isGitHub = passwordOrProvider === 'GitHub';
+    const isGoogle = passwordOrProvider === 'Google';
+
+    if (isApiAvailable()) {
+      // API mode — real authentication only, no demo fallback
+      try {
+        if (isGoogle) {
+          // Google OAuth not implemented — show error
+          alert('Google login is not configured yet. Please use email/password or GitHub PAT.');
+          return;
+        }
+
+        if (isGitHub) {
+          // GitHub PAT login
+          const ghResult = await api.auth.loginGithub(email);
+          if (!ghResult.access_token) {
+            alert('GitHub login succeeded but no session was created. Please try email/password login instead.');
+            return;
+          }
+          const apiUser: User = {
+            id: ghResult.user.id,
+            name: ghResult.user.name || ghResult.github_username || 'Developer',
+            email: ghResult.user.email,
+            avatarUrl: ghResult.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&h=80&q=80',
+            role: (ghResult.user.role as 'admin' | 'developer' | 'operator') || 'admin',
+            connectedGithub: ghResult.github_username || 'connected',
+            connectedVercel: false,
+            connectedNetlify: false,
+          };
+          localStorage.setItem('idp_jwt', ghResult.access_token);
+          setUser(apiUser);
+
+          // Auto-install GitHub integration + fetch repos in background
+          try {
+            const setup = await api.auth.githubSetup(email);
+            if (setup.repos && setup.repos.length > 0) {
+              const existingNames = new Set((projects as Array<{repoName: string}>).map(p => p.repoName));
+              const newProjects = setup.repos
+                .filter(r => !existingNames.has(r.name))
+                .slice(0, 20)
+                .map(r => ({
+                  id: 'gh_' + r.id,
+                  name: r.name,
+                  description: r.description || `GitHub repo: ${r.full_name}`,
+                  repoOwner: r.owner,
+                  repoName: r.name,
+                  branch: r.default_branch,
+                  provider: 'vercel' as const,
+                  environment: 'production' as const,
+                  status: 'queued' as const,
+                  createdAt: r.pushed_at || new Date().toISOString(),
+                  ownerId: apiUser.id,
+                }));
+              if (newProjects.length > 0) {
+                setProjects(prev => [...newProjects, ...prev]);
+              }
+            }
+          } catch {
+            // Setup is best-effort — login still succeeds
+          }
+
+          setAuditLogs(prev => [{
+            id: 'a_' + Math.random().toString(36).substr(2, 9),
+            userId: apiUser.id, userName: apiUser.name,
+            action: 'USER_LOGIN',
+            details: 'Signed in via GitHub PAT. GitHub integration auto-configured.',
+            createdAt: new Date().toISOString()
+          }, ...prev]);
+          connectWebSocket(apiUser.id);
+          navigateTo('dashboard');
+          return;
+        }
+
+        // Email + password login
+        const result = await api.auth.login(email, passwordOrProvider || '') as { access_token: string };
+        const token = result.access_token;
+        localStorage.setItem('idp_jwt', token);
+
+        const payloadB64 = token.split('.')[1];
+        const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
+        const githubUsername = payload.user_metadata?.user_name || payload.user_metadata?.preferred_username || '';
+        const displayName =
+          payload.name ||
+          payload.user_metadata?.full_name ||
+          payload.user_metadata?.name ||
+          payload.email ||
+          email ||
+          'Developer';
+
+        const apiUser: User = {
+          id: payload.sub || payload.user_id || 'u_api',
+          name: displayName,
+          email: payload.email || email,
+          avatarUrl: payload.user_metadata?.avatar_url || payload.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&h=80&q=80',
+          role: payload.user_metadata?.role || payload.role || 'admin',
+          connectedGithub: githubUsername || payload.connected_github || '',
+          connectedVercel: Boolean(payload.connected_vercel),
+          connectedNetlify: Boolean(payload.connected_netlify),
+        };
+        setUser(apiUser);
+        setAuditLogs(prev => [{
+          id: 'a_' + Math.random().toString(36).substr(2, 9),
+          userId: apiUser.id, userName: apiUser.name,
+          action: 'USER_LOGIN', details: 'Signed in via Email.',
+          createdAt: new Date().toISOString()
+        }, ...prev]);
+        connectWebSocket(apiUser.id);
+        navigateTo('dashboard');
+        return;
+
+      } catch (err: unknown) {
+        // Show real error to user — do NOT silently fall to demo mode
+        const msg = err instanceof Error ? err.message : 'Login failed. Check your credentials and try again.';
+        alert(`Login failed: ${msg}`);
+        return;
+      }
+    }
+
+    // ── Demo / mock mode (only when VITE_API_URL is not set) ────────────────
+    const isGitHubDemo = passwordOrProvider === 'GitHub';
+    const isGoogleDemo = passwordOrProvider === 'Google';
+    const mockName = isGitHubDemo
+      ? 'Developer'
+      : (email.split('@')[0] || 'Developer');
+
     const mockUser: User = {
       id: 'u_' + Math.random().toString(36).substr(2, 9),
-      name: 'Daksh Mulundkar',
-      email: email,
-      avatarUrl: provider === 'GitHub' 
-        ? 'https://images.unsplash.com/photo-1618401471353-b98aedd07871?auto=format&fit=crop&w=80&h=80&q=80'
-        : 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&h=80&q=80',
+      name: mockName,
+      email: isGitHubDemo ? 'demo@localhost' : (email || 'demo@localhost'),
+      avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&h=80&q=80',
       role: 'admin',
-      connectedGithub: 'Dakshmulundkar',
-      connectedVercel: true,
+      connectedGithub: isGitHubDemo ? 'connected' : '',
+      connectedVercel: false,
       connectedNetlify: false,
     };
     setUser(mockUser);
-    
+
     // Create login audit event
     const newAudit: AuditLog = {
       id: 'a_' + Math.random().toString(36).substr(2, 9),
       userId: mockUser.id,
       userName: mockUser.name,
       action: 'USER_LOGIN',
-      details: `Logged in securely via ${provider || 'Email'}.`,
+      details: `Logged in securely via ${isGitHubDemo ? 'GitHub' : isGoogleDemo ? 'Google' : 'Email'}.`,
       createdAt: new Date().toISOString()
     };
     setAuditLogs(prev => [newAudit, ...prev]);
@@ -268,6 +703,20 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const logoutUser = () => {
+    // Close WebSocket on logout
+    if (wsReconnectTimeoutRef.current) {
+      clearTimeout(wsReconnectTimeoutRef.current);
+      wsReconnectTimeoutRef.current = null;
+    }
+    if (wsRef.current) {
+      wsRef.current.onclose = null; // prevent reconnect
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    // Clear JWT
+    localStorage.removeItem('idp_jwt');
+
     setUser(null);
     setCurrentPage('login');
     localStorage.removeItem('idp_user');
@@ -298,7 +747,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // Core IDP Actions
-  const createProject = (projectData: Omit<Project, 'id' | 'createdAt' | 'ownerId' | 'status' | 'webhookUrl' | 'webhookSecret'>) => {
+  const createProject = async (projectData: Omit<Project, 'id' | 'createdAt' | 'ownerId' | 'status' | 'webhookUrl' | 'webhookSecret'>) => {
     if (!user) return;
     const projectId = 'p_' + Math.random().toString(36).substr(2, 9);
     const newProject: Project = {
@@ -310,6 +759,42 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       webhookUrl: `https://api.devcorp-idp.com/webhooks/${projectData.provider}`,
       webhookSecret: 'whsec_' + Math.random().toString(36).substr(2, 8),
     };
+
+    if (isApiAvailable()) {
+      try {
+        const apiProject = await api.projects.create({
+          name: projectData.name,
+          description: projectData.description,
+          repo_owner: projectData.repoOwner,
+          repo_name: projectData.repoName,
+          branch: projectData.branch,
+          provider: projectData.provider,
+          vercel_project_id: projectData.vercelProjectId,
+          netlify_site_id: projectData.netlifySiteId,
+        });
+        const merged: Project = {
+          ...newProject,
+          id: (apiProject.id as string) || projectId,
+        };
+        setProjects(prev => [...prev, merged]);
+        simulateInitialBuildPipeline(merged);
+        const newAudit: AuditLog = {
+          id: 'a_' + Math.random().toString(36).substr(2, 9),
+          userId: user.id,
+          userName: user.name,
+          action: 'PROJECT_CREATE',
+          projectId: merged.id,
+          projectName: merged.name,
+          details: `Created project connected to ${merged.repoOwner}/${merged.repoName} on branch ${merged.branch}.`,
+          createdAt: new Date().toISOString()
+        };
+        setAuditLogs(prev => [newAudit, ...prev]);
+        navigateTo('projects');
+        return;
+      } catch {
+        // fall through to mock
+      }
+    }
 
     setProjects(prev => [...prev, newProject]);
 
@@ -479,12 +964,44 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, 6000);
   };
 
-  const startRollback = (projectId: string, targetDeploymentId: string) => {
+  const startRollback = async (projectId: string, targetDeploymentId: string) => {
     if (!user) return;
     const project = projects.find(p => p.id === projectId);
-    const targetDeploy = deployments.find(d => d.id === targetDeploymentId);
-    const failedDeploy = deployments.find(d => d.projectId === projectId && (d.status === 'failed' || d.status === 'ready'));
+    const targetDeploy = deployments.find(d => d.id === targetDeploymentId) ||
+      deployments.find(d => d.projectId === projectId && (d.status === 'ready' || d.status === 'rolled_back'));
+    const failedDeploy = deployments.find(d => d.projectId === projectId && d.status === 'failed');
 
+    // If API is available, call it and let backend handle everything
+    if (isApiAvailable()) {
+      try {
+        const result = await api.rollback.start(projectId, targetDeploymentId);
+        setNotifications(prev => [{
+          id: 'n_' + Math.random().toString(36).substr(2, 9),
+          title: 'Rollback Initiated',
+          message: `Rollback started for ${project?.name || projectId} (Rollback ID: ${result.rollback_id}).`,
+          type: 'info',
+          projectId,
+          read: false,
+          createdAt: new Date().toISOString(),
+        }, ...prev]);
+        setProjects(prev => prev.map(p => p.id === projectId ? { ...p, status: 'building' } : p));
+        setAuditLogs(prev => [{
+          id: 'a_' + Math.random().toString(36).substr(2, 9),
+          userId: user.id,
+          userName: user.name,
+          action: 'PROJECT_ROLLBACK',
+          projectId,
+          projectName: project?.name,
+          details: `Rollback initiated via API to deployment ${targetDeploymentId}. Rollback ID: ${result.rollback_id}.`,
+          createdAt: new Date().toISOString(),
+        }, ...prev]);
+        return;
+      } catch (err) {
+        console.error('[rollback] API call failed, falling back to simulation:', err);
+      }
+    }
+
+    // Demo / fallback mode
     if (!project || !targetDeploy) return;
 
     const rollbackId = 'rb_' + Math.random().toString(36).substr(2, 9);
@@ -952,14 +1469,12 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Plugin Actions
   const installPlugin = (pluginId: string) => {
     if (!user) return;
-    const alreadyInstalled = pluginInstallations.find(p => p.pluginId === pluginId);
-    if (alreadyInstalled) return;
-
     const def = pluginDefinitions.find(d => d.id === pluginId);
     if (!def) return;
 
+    const tempId = 'inst_' + Math.random().toString(36).substr(2, 9);
     const newInst: PluginInstallation = {
-      id: 'inst_' + Math.random().toString(36).substr(2, 9),
+      id: tempId,
       pluginId,
       pluginName: def.name,
       category: def.category,
@@ -970,6 +1485,20 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       recentEvents: [{ message: 'Plugin installed. Configure credentials to connect.', timestamp: new Date().toISOString(), type: 'info' }],
     };
     setPluginInstallations(prev => [...prev, newInst]);
+
+    if (isApiAvailable()) {
+      api.plugins.create({
+        plugin_id: pluginId,
+        plugin_name: def.name,
+        category: def.category,
+        status: 'disconnected',
+      }).then(res => {
+        if (res && (res as any).id) {
+          const rec = res as any;
+          setPluginInstallations(prev => prev.map(p => p.id === tempId ? { ...p, id: rec.id } : p));
+        }
+      }).catch(err => console.error('[plugins] Create failed:', err));
+    }
 
     const newAudit: AuditLog = {
       id: 'a_' + Math.random().toString(36).substr(2, 9),
@@ -998,6 +1527,10 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     setPluginInstallations(prev => prev.filter(p => p.id !== installationId));
 
+    if (isApiAvailable()) {
+      api.plugins.remove(installationId).catch(err => console.error('[plugins] Remove failed:', err));
+    }
+
     const newAudit: AuditLog = {
       id: 'a_' + Math.random().toString(36).substr(2, 9),
       userId: user.id,
@@ -1009,40 +1542,75 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setAuditLogs(prev => [newAudit, ...prev]);
   };
 
-  const updatePluginConfig = (installationId: string, config: Partial<PluginInstallation>) => {
+  const updatePluginConfig = async (installationId: string, config: Partial<PluginInstallation> & { apiKey?: string }) => {
     if (!user) return;
+
+    // Optimistic UI update
     setPluginInstallations(prev => prev.map(p => {
       if (p.id !== installationId) return p;
       const updated = { ...p, ...config };
-      // Simulate connection test on save
       if (config.apiKey || config.apiKeyHint) {
         updated.status = 'connected';
         updated.lastSyncAt = new Date().toISOString();
         updated.errorMessage = undefined;
-        updated.recentEvents = [
-          { message: 'Credentials verified. Connection established.', timestamp: new Date().toISOString(), type: 'success' },
-          ...(p.recentEvents || []).slice(0, 4),
-        ];
       }
       return updated;
     }));
+
+    // Persist to Supabase via backend
+    if (isApiAvailable()) {
+      try {
+        const payload: Record<string, unknown> = {};
+        if (config.apiKey !== undefined && config.apiKey !== '' && !config.apiKey.includes('••••')) {
+          payload.api_key = config.apiKey;
+        }
+        if (config.apiKeyHint !== undefined && !config.apiKeyHint.includes('••••')) {
+          payload.api_key_hint = config.apiKeyHint;
+        }
+        if (config.status !== undefined) payload.status = config.status;
+        if (config.enabledForProjects !== undefined) payload.enabled_for_projects = config.enabledForProjects;
+        if (config.baseUrl !== undefined) payload.base_url = config.baseUrl;
+        if (config.projectSelector !== undefined) payload.project_selector = config.projectSelector;
+        if (config.apiKey) payload.status = 'connected';
+
+        if (Object.keys(payload).length > 0) {
+          const updated = await api.plugins.update(installationId, payload);
+          if (updated && (updated as any).id) {
+            const serverPlugin = updated as Record<string, unknown>;
+            setPluginInstallations(prev => prev.map(p => (p.id === installationId || p.id === serverPlugin.id) ? {
+              ...p,
+              id: (serverPlugin.id as string) || p.id,
+              status: (serverPlugin.status as PluginInstallation['status']) || p.status,
+              apiKeyHint: (serverPlugin.api_key_hint as string) || p.apiKeyHint,
+              baseUrl: (serverPlugin.base_url as string) || p.baseUrl,
+              projectSelector: (serverPlugin.project_selector as string) || p.projectSelector,
+              lastSyncAt: p.lastSyncAt || new Date().toISOString(),
+            } : p));
+          }
+        }
+        // Auto refresh platform data after saving plugin config
+        await refreshData();
+      } catch (err) {
+        console.error('[plugins] Failed to persist config to backend:', err);
+      }
+    }
 
     const inst = pluginInstallations.find(p => p.id === installationId);
     const newAudit: AuditLog = {
       id: 'a_' + Math.random().toString(36).substr(2, 9),
       userId: user.id,
       userName: user.name,
-      action: 'PLUGIN_CONFIG',
-      details: `Updated configuration for plugin: ${inst?.pluginName || installationId}.`,
+      action: 'PLUGIN_UPDATE',
+      details: `Updated configuration for plugin: ${inst ? inst.pluginName : installationId}`,
       createdAt: new Date().toISOString(),
     };
     setAuditLogs(prev => [newAudit, ...prev]);
 
     setNotifications(prev => [{
       id: 'n_' + Math.random().toString(36).substr(2, 9),
-      title: 'Plugin Configuration Saved',
-      message: `${inst?.pluginName || 'Plugin'} credentials updated and connection verified.`,
-      type: 'success',
+      title: 'Plugin Updated',
+      message: `Configuration for ${inst ? inst.pluginName : 'plugin'} saved successfully.`,
+      type: 'info',
       read: false,
       createdAt: new Date().toISOString(),
     }, ...prev]);
@@ -1079,6 +1647,8 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       installPlugin,
       uninstallPlugin,
       updatePluginConfig,
+      refreshData,
+      syncDeployments,
       teamMembers,
       addTeamMember,
       removeTeamMember,

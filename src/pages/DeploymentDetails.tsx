@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import { 
   ArrowLeft, Terminal, Bot, RefreshCw, AlertCircle, 
-  CheckCircle, Play, Server, GitCommit, User, Sparkles
+  Server, GitCommit, User, Sparkles
 } from 'lucide-react';
-import { aiExplanations, initialSentryIssues } from '../data/seedData';
+import { aiExplanations } from '../data/seedData';
 import type { DeploymentStatus } from '../types/platform';
 
 export const DeploymentDetails: React.FC = () => {
@@ -13,8 +13,8 @@ export const DeploymentDetails: React.FC = () => {
     deployments, 
     navigateTo, 
     triggerWebhookSimulation,
-    projects,
     monitoringAlerts,
+    sentryIssues,
   } = usePlatform();
 
   const [isRetrying, setIsRetrying] = useState(false);
@@ -318,7 +318,7 @@ export const DeploymentDetails: React.FC = () => {
         const nearAlerts = monitoringAlerts.filter((a: any) =>
           Math.abs(new Date(a.firedAt).getTime() - depTime) < 1800000
         );
-        const releaseIssues = initialSentryIssues.filter(i =>
+        const releaseIssues = (sentryIssues || []).filter(i =>
           i.release === deployment.version || i.deploymentId === deployment.id
         );
 

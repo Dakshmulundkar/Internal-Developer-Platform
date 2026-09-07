@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import { initialSentryIssues } from '../data/seedData';
+import { isApiAvailable, api } from '../services/api';
 import {
   Activity, Search, AlertTriangle, CheckCircle, Clock,
-  ExternalLink, Bug, Filter, ChevronRight, ShieldAlert, Code
+  ExternalLink, Bug, Filter, ChevronRight, ShieldAlert, Code,
+  Zap, Play, RefreshCw
 } from 'lucide-react';
 import type { AlertSource, AlertSeverity, AlertStatus } from '../types/platform';
 
@@ -30,7 +32,7 @@ const sourceIcon = (source: AlertSource) => {
   const base = 'text-[9px] font-black font-mono px-1.5 py-0.5 rounded border ';
   switch (source) {
     case 'grafana':  return <span className={base + 'bg-orange-500/10 text-orange-400 border-orange-500/25'}>GF</span>;
-    case 'datadog':  return <span className={base + 'bg-purple-500/10 text-purple-400 border-purple-500/25'}>DD</span>;
+    case 'newrelic': return <span className={base + 'bg-green-500/10 text-green-400 border-green-500/25'}>NR</span>;
     case 'sentry':   return <span className={base + 'bg-violet-500/10 text-violet-400 border-violet-500/25'}>SN</span>;
     case 'vercel':   return <span className={base + 'bg-white/5 text-zinc-300 border-white/[0.06]'}>VC</span>;
     case 'netlify':  return <span className={base + 'bg-teal-500/10 text-teal-400 border-teal-500/25'}>NF</span>;
@@ -47,7 +49,7 @@ const sentryLevelColor = (level: string) => {
 };
 
 export const Monitoring: React.FC = () => {
-  const { monitoringAlerts, navigateTo, projects } = usePlatform();
+  const { monitoringAlerts: contextAlerts, navigateTo, projects, pluginInstallations, refreshData: refreshPlatformData } = usePlatform();
   const [tab, setTab] = useState<'alerts' | 'sentry'>('alerts');
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] = useState<AlertSource | 'all'>('all');
@@ -55,8 +57,114 @@ export const Monitoring: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<AlertStatus | 'all'>('all');
   const [projectFilter, setProjectFilter] = useState<string>('all');
   const [selectedAlert, setSelectedAlert] = useState<string | null>(null);
+  const [targetProjectId, setTargetProjectId] = useState<string>('');
+  const [triggeringAction, setTriggeringAction] = useState<string | null>(null);
+  const [testMessage, setTestMessage] = useState<string | null>(null);
+  const [testMessageType, setTestMessageType] = useState<'success' | 'error' | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [liveAlerts, setLiveAlerts] = useState<typeof contextAlerts | null>(null);
 
-  const sentryIssues = initialSentryIssues;
+  // Auto-detect target test URL from Vercel plugin or projects
+  const vercelPlugin = pluginInstallations.find(p => p.pluginId === 'vercel');
+  const detectedUrl = vercelPlugin?.baseUrl || (
+    vercelPlugin?.projectSelector
+      ? (vercelPlugin.projectSelector.startsWith('http')
+          ? vercelPlugin.projectSelector
+          : `https://${vercelPlugin.projectSelector.replace(/\.vercel\.app$/, '')}.vercel.app`)
+      : 'https://testing-mi-5f2c.vercel.app'
+  );
+  const [targetAppUrl, setTargetAppUrl] = useState(detectedUrl);
+
+  useEffect(() => {
+    if (detectedUrl && (!targetAppUrl || targetAppUrl === 'https://testing-brown-delta.vercel.app')) {
+      setTargetAppUrl(detectedUrl);
+    }
+  }, [detectedUrl]);
+
+  useEffect(() => {
+    if (projects.length > 0 && !targetProjectId) {
+      setTargetProjectId(projects[0].id);
+    }
+  }, [projects, targetProjectId]);
+
+  const refreshAlerts = async () => {
+    if (!isApiAvailable()) return;
+    setIsRefreshing(true);
+    try {
+      const data = await api.monitoring.getAlerts();
+      if (Array.isArray(data)) {
+        const mapped = data.map((r: any) => ({
+          id: r.id,
+          projectId: r.project_id || r.projectId || '',
+          projectName: r.project_name || r.projectName || 'Service',
+          title: r.title || 'System Alert',
+          description: r.description || '',
+          severity: (r.severity || 'medium') as AlertSeverity,
+          status: (r.status || 'firing') as AlertStatus,
+          source: (r.source || 'grafana') as AlertSource,
+          firedAt: r.fired_at || r.firedAt || new Date().toISOString(),
+          resolvedAt: r.resolved_at || r.resolvedAt,
+          metricName: r.metric_name || r.metricName,
+          metricValue: r.metric_value || r.metricValue,
+          dashboardUrl: r.dashboard_url || r.dashboardUrl,
+        }));
+        setLiveAlerts(mapped as typeof contextAlerts);
+      }
+    } catch (err) {
+      console.warn('[monitoring] refreshAlerts error:', err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isApiAvailable()) return;
+    refreshAlerts();
+    const timer = setInterval(refreshAlerts, 6000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleRunTest = async (testType: string) => {
+    const targetId = targetProjectId || projects[0]?.id;
+    if (!targetId) return;
+    setTriggeringAction(testType);
+    setTestMessage(null);
+    try {
+      await api.monitoring.triggerTest(targetId, testType, targetAppUrl || undefined);
+      setTestMessage(`Test event "${testType}" fired against ${targetAppUrl || 'target service'}! Alert and incident created.`);
+      setTestMessageType('success');
+      await refreshAlerts();
+      if (refreshPlatformData) await refreshPlatformData();
+    } catch (err: any) {
+      setTestMessage(`Test trigger failed: ${err?.message || err}`);
+      setTestMessageType('error');
+    } finally {
+      setTriggeringAction(null);
+    }
+  };
+
+  const handleRunProbe = async () => {
+    const targetId = targetProjectId || projects[0]?.id;
+    if (!targetId) return;
+    setTriggeringAction('probe');
+    setTestMessage(null);
+    try {
+      await api.monitoring.probe(targetId, targetAppUrl || undefined);
+      setTestMessage(`Live health probe complete on ${targetAppUrl || 'target service'}! All endpoints verified.`);
+      setTestMessageType('success');
+      await refreshAlerts();
+      if (refreshPlatformData) await refreshPlatformData();
+    } catch (err: any) {
+      setTestMessage(`Health probe failed: ${err?.message || err}`);
+      setTestMessageType('error');
+    } finally {
+      setTriggeringAction(null);
+    }
+  };
+
+  const monitoringAlerts = liveAlerts ?? contextAlerts;
+
+  const sentryIssues = isApiAvailable() ? [] : initialSentryIssues;
 
   const firing   = monitoringAlerts.filter(a => a.status === 'firing').length;
   const resolved = monitoringAlerts.filter(a => a.status === 'resolved').length;
@@ -101,6 +209,130 @@ export const Monitoring: React.FC = () => {
             <span className="text-zinc-500 ml-1">sentry issues</span>
           </div>
         </div>
+      </div>
+
+      {/* Live Testing & Observability Trigger Panel */}
+      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider flex items-center gap-2">
+              <Zap size={14} className="text-amber-400" />
+              Live Testing Service & Event Generator
+            </h4>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Probe deployed test application and trigger real events that flow through backend monitoring into Supabase.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={targetProjectId}
+              onChange={e => setTargetProjectId(e.target.value)}
+              className="bg-black/40 border border-white/[0.08] text-zinc-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none"
+            >
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name} {p.vercelProjectId ? `(${p.vercelProjectId})` : ''}
+                </option>
+              ))}
+            </select>
+            <div className="flex items-center gap-1.5 bg-black/40 border border-white/[0.08] px-2.5 py-1 rounded-lg">
+              <span className="text-[10px] text-zinc-500 font-mono">Target:</span>
+              <input
+                type="text"
+                value={targetAppUrl}
+                onChange={e => setTargetAppUrl(e.target.value)}
+                placeholder="https://testing-mi-5f2c.vercel.app"
+                className="bg-transparent text-zinc-200 text-xs font-mono focus:outline-none w-52"
+              />
+            </div>
+            <a
+              href={targetAppUrl || "https://testing-mi-5f2c.vercel.app"}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-zinc-400 hover:text-zinc-200 flex items-center gap-1 border border-white/[0.06] px-2.5 py-1.5 rounded-lg hover:bg-white/[0.03] transition-all"
+            >
+              <ExternalLink size={12} /> Open Site
+            </a>
+            <button
+              onClick={refreshAlerts}
+              title="Refresh alerts"
+              className="p-1.5 rounded-lg border border-white/[0.06] hover:bg-white/[0.04] text-zinc-400 hover:text-white transition-all"
+            >
+              <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+            </button>
+          </div>
+        </div>
+
+        {/* Test Buttons Row */}
+        <div className="flex flex-wrap gap-2 pt-1">
+          <button
+            onClick={() => handleRunTest('normal')}
+            disabled={!!triggeringAction}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-50 transition-all flex items-center gap-1.5"
+          >
+            {triggeringAction === 'normal' ? <RefreshCw size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+            Normal Request (200 OK)
+          </button>
+          <button
+            onClick={() => handleRunTest('trigger_500')}
+            disabled={!!triggeringAction}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg border border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20 disabled:opacity-50 transition-all flex items-center gap-1.5"
+          >
+            {triggeringAction === 'trigger_500' ? <RefreshCw size={12} className="animate-spin" /> : <AlertTriangle size={12} />}
+            Trigger 500 (Broken)
+          </button>
+          <button
+            onClick={() => handleRunTest('slow_request')}
+            disabled={!!triggeringAction}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 disabled:opacity-50 transition-all flex items-center gap-1.5"
+          >
+            {triggeringAction === 'slow_request' ? <RefreshCw size={12} className="animate-spin" /> : <Clock size={12} />}
+            8s Slow Request
+          </button>
+          <button
+            onClick={() => handleRunTest('error_storm')}
+            disabled={!!triggeringAction}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg border border-purple-500/20 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 disabled:opacity-50 transition-all flex items-center gap-1.5"
+          >
+            {triggeringAction === 'error_storm' ? <RefreshCw size={12} className="animate-spin" /> : <ShieldAlert size={12} />}
+            Error Storm (5x Burst)
+          </button>
+          <button
+            onClick={() => handleRunTest('memory_waste')}
+            disabled={!!triggeringAction}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg border border-orange-500/20 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 disabled:opacity-50 transition-all flex items-center gap-1.5"
+          >
+            {triggeringAction === 'memory_waste' ? <RefreshCw size={12} className="animate-spin" /> : <Zap size={12} />}
+            Memory Waste (92%)
+          </button>
+          <button
+            onClick={() => handleRunTest('test_grafana_api')}
+            disabled={!!triggeringAction}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg border border-blue-500/20 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 disabled:opacity-50 transition-all flex items-center gap-1.5"
+          >
+            {triggeringAction === 'test_grafana_api' ? <RefreshCw size={12} className="animate-spin" /> : <Play size={12} />}
+            Test Grafana API
+          </button>
+          <button
+            onClick={handleRunProbe}
+            disabled={!!triggeringAction}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg border border-white/[0.1] bg-white/[0.05] text-zinc-200 hover:bg-white/[0.1] disabled:opacity-50 transition-all flex items-center gap-1.5 ml-auto"
+          >
+            {triggeringAction === 'probe' ? <RefreshCw size={12} className="animate-spin" /> : <Activity size={12} />}
+            Run Health Probe
+          </button>
+        </div>
+
+        {testMessage && (
+          <div className={`p-2.5 rounded-lg text-xs font-mono flex items-center gap-2 border ${
+            testMessageType === 'success'
+              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+              : 'bg-red-500/10 border-red-500/20 text-red-400'
+          }`}>
+            {testMessageType === 'success' ? <CheckCircle size={13} /> : <AlertTriangle size={13} />}
+            {testMessage}
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
@@ -310,74 +542,92 @@ export const Monitoring: React.FC = () => {
             <Bug size={14} className="text-violet-400 shrink-0 mt-0.5" />
             <span>
               Showing Sentry issues pulled via the <b className="text-zinc-200">Sentry Plugin</b>.
-              Issues are linked to projects and deployments. <b className="text-zinc-200">[DEMO DATA]</b>
+              Issues are linked to projects and deployments.
             </span>
           </div>
 
-          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
-            <table className="w-full text-xs text-left border-collapse">
-              <thead>
-                <tr className="border-b border-white/[0.06] text-[10px] font-semibold text-zinc-500 uppercase tracking-wider bg-white/[0.02]">
-                  <th className="p-4">ISSUE</th>
-                  <th className="p-4">LEVEL</th>
-                  <th className="p-4">STATUS</th>
-                  <th className="p-4">COUNT</th>
-                  <th className="p-4">RELEASE</th>
-                  <th className="p-4">LAST SEEN</th>
-                  <th className="p-4">ACTIONS</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.06]">
-                {sentryIssues.map(issue => (
-                  <tr key={issue.id} className="hover:bg-white/[0.02] transition-all">
-                    <td className="p-4 max-w-xs">
-                      <p className="font-semibold text-white line-clamp-1">{issue.title}</p>
-                      <p className="text-[10px] text-zinc-600 font-mono mt-0.5">{issue.culprit}</p>
-                      {issue.stackTrace && (
-                        <details className="mt-1">
-                          <summary className="text-[10px] text-zinc-400 hover:text-zinc-200 cursor-pointer hover:underline flex items-center gap-1">
-                            <Code size={10} /> Stack trace
-                          </summary>
-                          <pre className="mt-1 text-[9px] text-zinc-500 bg-black/20 border border-white/5 p-2 rounded overflow-x-auto leading-relaxed whitespace-pre-wrap font-mono">
-                            {issue.stackTrace}
-                          </pre>
-                        </details>
-                      )}
-                    </td>
-                    <td className="p-4">
-                      <span className={`text-[9px] font-semibold font-mono px-1.5 py-0.5 rounded border uppercase ${sentryLevelColor(issue.level)}`}>
-                        {issue.level}
-                      </span>
-                    </td>
-                    <td className="p-4">
-                      <span className={`text-[9px] font-semibold font-mono px-1.5 py-0.5 rounded border uppercase ${
-                        issue.status === 'unresolved' ? 'text-red-400 bg-red-500/10 border-red-500/20' :
-                        issue.status === 'resolved' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
-                        'text-zinc-500 bg-white/5 border-white/[0.06]'
-                      }`}>
-                        {issue.status}
-                      </span>
-                    </td>
-                    <td className="p-4 font-mono text-zinc-300 font-bold">{issue.count.toLocaleString()}</td>
-                    <td className="p-4 font-mono text-[10px] text-zinc-500">{issue.release || '—'}</td>
-                    <td className="p-4 text-zinc-600 font-mono text-[10px]">
-                      {new Date(issue.lastSeen).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    </td>
-                    <td className="p-4">
-                      <div className="flex gap-2">
-                        {issue.deploymentId && (
-                          <button onClick={() => navigateTo('deployment-details', { deploymentId: issue.deploymentId })}
-                            className="text-[10px] text-zinc-400 hover:text-zinc-200 hover:underline font-mono">Deployment</button>
-                        )}
-                        <button onClick={() => navigateTo('ai-assistant', { projectId: issue.projectId })}
-                          className="text-[10px] text-violet-400 hover:underline font-mono">Ask AI</button>
-                      </div>
-                    </td>
+          {sentryIssues.length === 0 ? (
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-12 text-center text-zinc-500">
+              <Bug size={28} className="mx-auto mb-3 text-zinc-600" />
+              <p className="text-xs font-semibold text-zinc-300">No Sentry Issues Reported</p>
+              <p className="text-[11px] text-zinc-500 mt-1 max-w-sm mx-auto">
+                Connect your Sentry integration in the Integrations panel to stream live production errors and stack traces.
+              </p>
+              <div className="mt-4">
+                <button
+                  onClick={() => navigateTo('integrations')}
+                  className="px-3.5 py-1.5 rounded-lg border border-white/[0.08] hover:bg-white/[0.04] text-zinc-300 text-xs font-medium transition-all"
+                >
+                  Configure Sentry Integration
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-white/[0.06] text-[10px] font-semibold text-zinc-500 uppercase tracking-wider bg-white/[0.02]">
+                    <th className="p-4">ISSUE</th>
+                    <th className="p-4">LEVEL</th>
+                    <th className="p-4">STATUS</th>
+                    <th className="p-4">COUNT</th>
+                    <th className="p-4">RELEASE</th>
+                    <th className="p-4">LAST SEEN</th>
+                    <th className="p-4">ACTIONS</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-white/[0.06]">
+                  {sentryIssues.map(issue => (
+                    <tr key={issue.id} className="hover:bg-white/[0.02] transition-all">
+                      <td className="p-4 max-w-xs">
+                        <p className="font-semibold text-white line-clamp-1">{issue.title}</p>
+                        <p className="text-[10px] text-zinc-600 font-mono mt-0.5">{issue.culprit}</p>
+                        {issue.stackTrace && (
+                          <details className="mt-1">
+                            <summary className="text-[10px] text-zinc-400 hover:text-zinc-200 cursor-pointer hover:underline flex items-center gap-1">
+                              <Code size={10} /> Stack trace
+                            </summary>
+                            <pre className="mt-1 text-[9px] text-zinc-500 bg-black/20 border border-white/5 p-2 rounded overflow-x-auto leading-relaxed whitespace-pre-wrap font-mono">
+                              {issue.stackTrace}
+                            </pre>
+                          </details>
+                        )}
+                      </td>
+                      <td className="p-4">
+                        <span className={`text-[9px] font-semibold font-mono px-1.5 py-0.5 rounded border uppercase ${sentryLevelColor(issue.level)}`}>
+                          {issue.level}
+                        </span>
+                      </td>
+                      <td className="p-4">
+                        <span className={`text-[9px] font-semibold font-mono px-1.5 py-0.5 rounded border uppercase ${
+                          issue.status === 'unresolved' ? 'text-red-400 bg-red-500/10 border-red-500/20' :
+                          issue.status === 'resolved' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
+                          'text-zinc-500 bg-white/5 border-white/[0.06]'
+                        }`}>
+                          {issue.status}
+                        </span>
+                      </td>
+                      <td className="p-4 font-mono text-zinc-300 font-bold">{issue.count.toLocaleString()}</td>
+                      <td className="p-4 font-mono text-[10px] text-zinc-500">{issue.release || '—'}</td>
+                      <td className="p-4 text-zinc-600 font-mono text-[10px]">
+                        {new Date(issue.lastSeen).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td className="p-4">
+                        <div className="flex gap-2">
+                          {issue.deploymentId && (
+                            <button onClick={() => navigateTo('deployment-details', { deploymentId: issue.deploymentId })}
+                              className="text-[10px] text-zinc-400 hover:text-zinc-200 hover:underline font-mono">Deployment</button>
+                          )}
+                          <button onClick={() => navigateTo('ai-assistant', { projectId: issue.projectId })}
+                            className="text-[10px] text-violet-400 hover:underline font-mono">Ask AI</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>

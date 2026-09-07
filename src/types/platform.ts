@@ -199,7 +199,7 @@ export interface PluginInstallation {
 
 export type AlertSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export type AlertStatus = 'firing' | 'resolved' | 'pending' | 'no_data';
-export type AlertSource = 'grafana' | 'datadog' | 'sentry' | 'vercel' | 'netlify';
+export type AlertSource = 'grafana' | 'newrelic' | 'sentry' | 'vercel' | 'netlify';
 
 export interface MonitoringAlert {
   id: string;

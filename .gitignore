@@ -22,3 +22,22 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Backend secrets
+backend/.env
+
+# Frontend local env
+.env.local
+
+# Kubernetes secrets (never commit real values)
+k8s/**/secret.yaml
+k8s/**/secrets.yaml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+.env.production
