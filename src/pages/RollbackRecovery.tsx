@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { isApiAvailable, api } from '../services/api';
 import { usePlatform } from '../context/PlatformContext';
 import { 
   ArrowLeft, RefreshCw, AlertTriangle, ShieldCheck, 
@@ -20,6 +21,10 @@ export const RollbackRecovery: React.FC = () => {
 
   const [selectedProjId, setSelectedProjId] = useState<string>(activeProjectId || projects[0]?.id || '');
   const [targetDeployId, setTargetDeployId] = useState<string>('');
+  const [apiRollbackId, setApiRollbackId] = useState<string | null>(null);
+  const [apiRollbackStatus, setApiRollbackStatus] = useState<string>('idle');
+  const [apiAuditLogs, setApiAuditLogs] = useState<string[]>([]);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const currentProject = projects.find(p => p.id === selectedProjId);
 
@@ -40,11 +45,45 @@ export const RollbackRecovery: React.FC = () => {
   const projectRollbacks = rollbackOperations.filter(r => r.projectId === selectedProjId);
   const activeRollback = rollbackOperations.find(r => r.projectId === selectedProjId && (r.status === 'queued' || r.status === 'in_progress'));
 
-  const handleInitiateRollback = () => {
+  const handleInitiateRollback = async () => {
     if (!selectedProjId || !targetDeployId) return;
+
+    if (isApiAvailable()) {
+      try {
+        const result = await api.rollback.start(selectedProjId, targetDeployId) as { rollback_id: string; status: string };
+        setApiRollbackId(result.rollback_id);
+        setApiRollbackStatus('in_progress');
+        setApiAuditLogs(['Rollback initiated via API...']);
+        setTargetDeployId('');
+        // Start polling
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = setInterval(async () => {
+          try {
+            const op = await api.rollback.get(result.rollback_id) as { status: string; audit_logs?: unknown[] };
+            const logs = (op.audit_logs || []).map((l: unknown) => {
+              if (typeof l === 'string') return l;
+              if (l && typeof l === 'object' && 'step' in l) return (l as { step: string }).step;
+              return JSON.stringify(l);
+            });
+            setApiAuditLogs(logs);
+            setApiRollbackStatus(op.status);
+            if (op.status === 'success' || op.status === 'failed') {
+              if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+            }
+          } catch { /* ignore */ }
+        }, 3000);
+        return;
+      } catch { /* fall through to local simulation */ }
+    }
+
     startRollback(selectedProjId, targetDeployId);
     setTargetDeployId('');
   };
+
+  // Cleanup poll on unmount
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -146,17 +185,17 @@ export const RollbackRecovery: React.FC = () => {
         <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-4">
           <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Active Recovery Monitor</h4>
           
-          {activeRollback ? (
+          {(apiRollbackId || activeRollback) ? (
             <div className="space-y-4">
               <div className="flex justify-between items-center text-xs">
                 <span className="text-zinc-400">Status:</span>
-                <span className={`uppercase font-mono text-[10px] ${getStatusColor(activeRollback.status)}`}>
-                  {activeRollback.status.replace('_', ' ')}
+                <span className={`uppercase font-mono text-[10px] ${getStatusColor(apiRollbackId ? apiRollbackStatus : activeRollback!.status)}`}>
+                  {(apiRollbackId ? apiRollbackStatus : activeRollback!.status).replace('_', ' ')}
                 </span>
               </div>
 
               <div className="space-y-2 max-h-56 overflow-y-auto bg-black/20 p-4 rounded-lg border border-white/[0.06] font-mono text-[10px] text-zinc-400 leading-relaxed">
-                {activeRollback.auditLogs.map((log, idx) => (
+                {(apiRollbackId ? apiAuditLogs : activeRollback!.auditLogs).map((log, idx) => (
                   <div key={idx} className="flex gap-2">
                     <span className="text-zinc-500">▶</span>
                     <span>{log}</span>

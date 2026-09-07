@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import { pluginDefinitions } from '../data/seedData';
+import { api } from '../services/api';
 import {
   ArrowLeft, Save, RefreshCw, Trash2, AlertCircle, CheckCircle,
   Eye, EyeOff, Link, Shield, Clock, Activity, Info
@@ -47,19 +48,32 @@ export const PluginConfig: React.FC = () => {
     );
   }
 
-  const handleTestConnection = () => {
+  const handleTestConnection = async () => {
     setTestState('testing');
-    setTimeout(() => {
+    try {
+      const result = await api.plugins.test({
+        id: installation.id,
+        plugin_id: installation.pluginId,
+        api_key: apiKey || undefined,
+        base_url: baseUrl || installation.baseUrl || undefined,
+        project_selector: projectSelector || installation.projectSelector || undefined,
+      });
+      setTestState(result.success ? 'success' : 'error');
+    } catch {
+      // Fallback: if backend is not yet available, use a basic check
       setTestState(apiKey || installation.apiKeyHint ? 'success' : 'error');
-    }, 1800);
+    }
   };
 
-  const handleSave = () => {
-    updatePluginConfig(installation.id, {
+  const handleSave = async () => {
+    await updatePluginConfig(installation.id, {
       baseUrl: baseUrl || undefined,
       projectSelector: projectSelector || undefined,
       enabledForProjects: selectedProjects,
-      ...(apiKey ? { apiKeyHint: `${apiKey.slice(0, 4)}_••••••••••••••••••••${apiKey.slice(-4)}` } : {}),
+      ...(apiKey ? {
+        apiKey,
+        apiKeyHint: `${apiKey.slice(0, 4)}_••••••••••••••••••••${apiKey.slice(-4)}`,
+      } : {}),
     });
     setSaveSuccess(true);
     setApiKey('');
@@ -178,9 +192,11 @@ export const PluginConfig: React.FC = () => {
           )}
 
           <div>
-            <label className="block font-semibold text-zinc-400 mb-1.5">Project / Service Selector</label>
+            <label className="block font-semibold text-zinc-400 mb-1.5">
+              {installation.pluginId === 'vercel' ? 'Vercel Project Name / ID' : 'Project / Service Selector'}
+            </label>
             <input type="text" value={projectSelector} onChange={e => setProjectSelector(e.target.value)}
-              placeholder={`e.g. devcorp/my-service or org-id`}
+              placeholder={installation.pluginId === 'vercel' ? 'e.g. testing-brown-delta' : 'e.g. devcorp/my-service or org-id'}
               className="w-full bg-black/30 border border-white/[0.06] text-zinc-100 placeholder-zinc-600 focus:border-white/20 focus:outline-none rounded-md py-2.5 px-4 text-xs font-mono" />
           </div>
         </div>

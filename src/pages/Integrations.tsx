@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { usePlatform } from '../context/PlatformContext';
+import { isApiAvailable, api } from '../services/api';
 import { pluginDefinitions } from '../data/seedData';
 import {
   Puzzle, Search, CheckCircle, XCircle, AlertCircle, RefreshCw,
@@ -9,8 +10,8 @@ import type { PluginCategory, PluginStatus } from '../types/platform';
 
 const CATEGORIES: { id: PluginCategory | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
-  { id: 'deployment', label: 'Deployment' },
-  { id: 'monitoring', label: 'Monitoring' },
+  { id: 'deployment', label: 'Deployment & CI/CD' },
+  { id: 'monitoring', label: 'Monitoring & Incidents' },
   { id: 'error_tracking', label: 'Error Tracking' },
   { id: 'source_control', label: 'Source Control' },
   { id: 'collaboration', label: 'Collaboration' },
@@ -49,6 +50,7 @@ export const Integrations: React.FC = () => {
     setInstallingId(pluginId);
     setTimeout(() => {
       installPlugin(pluginId);
+      if (isApiAvailable()) { api.monitoring.sync().catch(() => {}); }
       setInstallingId(null);
     }, 1200);
   };

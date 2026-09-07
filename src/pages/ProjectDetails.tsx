@@ -61,7 +61,7 @@ export const ProjectDetails: React.FC = () => {
   const {
     activeProjectId, projects, deployments, incidents, navigateTo,
     monitoringAlerts, teamMembers, addTeamMember, removeTeamMember,
-    updateTeamMemberRole, user, auditLogs, setAuditLogs
+    updateTeamMemberRole, user, auditLogs, setAuditLogs, sentryIssues
   } = usePlatform() as any;
 
   const [activeTab, setActiveTab] = useState<ProjectTab>('overview');
@@ -79,7 +79,7 @@ export const ProjectDetails: React.FC = () => {
         <h3 className="text-sm font-semibold text-white mb-2">No active project selected</h3>
         <button onClick={() => navigateTo('projects')}
           className="bg-white text-black hover:bg-zinc-200 font-medium py-1.5 px-3 rounded text-xs">
-          Select project
+          Back to Projects
         </button>
       </div>
     );
@@ -88,7 +88,7 @@ export const ProjectDetails: React.FC = () => {
   const projectDeploys = deployments.filter((d: any) => d.projectId === project.id);
   const projectIncidents = incidents.filter((i: any) => i.projectId === project.id);
   const projectAlerts = monitoringAlerts.filter((a: any) => a.projectId === project.id);
-  const projectSentryIssues = initialSentryIssues.filter(i => i.projectId === project.id);
+  const projectSentryIssues = (sentryIssues || []).filter((i: any) => i.projectId === project.id);
   const projectTeam = teamMembers.filter((tm: any) => tm.projectId === project.id);
 
   const getStatusIndicator = (status: DeploymentStatus) => {

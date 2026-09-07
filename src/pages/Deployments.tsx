@@ -2,15 +2,30 @@ import React, { useState } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import { 
   Search, Filter, Github, ChevronRight, Clock,
-  ArrowRight, ShieldAlert, CheckCircle2, History 
+  ArrowRight, ShieldAlert, CheckCircle2, History, RefreshCw 
 } from 'lucide-react';
 import type { DeploymentStatus } from '../types/platform';
 
 export const Deployments: React.FC = () => {
-  const { deployments, navigateTo } = usePlatform();
+  const { deployments, navigateTo, projects, syncDeployments, refreshData } = usePlatform();
   const [searchTerm, setSearchTerm] = useState('');
   const [providerFilter, setProviderFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    try {
+      const targetPid = projects[0]?.id;
+      if (targetPid) {
+        await syncDeployments(targetPid);
+      } else {
+        await refreshData();
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const getStatusColor = (status: DeploymentStatus) => {
     switch (status) {
@@ -24,9 +39,9 @@ export const Deployments: React.FC = () => {
   };
 
   const filteredDeploys = deployments.filter(d => {
-    const matchesSearch = d.projectName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      d.commitMessage.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      d.commitHash.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = (d.projectName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (d.commitMessage || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (d.commitHash || '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchesProvider = providerFilter === 'all' || d.provider === providerFilter;
     const matchesStatus = statusFilter === 'all' || d.status === statusFilter;
     return matchesSearch && matchesProvider && matchesStatus;
@@ -73,6 +88,15 @@ export const Deployments: React.FC = () => {
             </select>
           </div>
         </div>
+
+        <button
+          onClick={handleSync}
+          disabled={isSyncing}
+          className="px-3.5 py-2 rounded-lg border border-white/[0.08] hover:bg-white/[0.04] text-zinc-200 text-xs font-medium transition-all flex items-center gap-1.5 shrink-0"
+        >
+          <RefreshCw size={13} className={isSyncing ? 'animate-spin' : ''} />
+          {isSyncing ? 'Syncing...' : 'Sync Deployments'}
+        </button>
       </div>
 
       {/* Table List */}
@@ -94,11 +118,32 @@ export const Deployments: React.FC = () => {
             <tbody className="divide-y divide-white/[0.06] text-zinc-300">
               {filteredDeploys.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-zinc-500 font-mono">
-                    No matching deployment builds found.
+                  <td colSpan={8} className="p-12 text-center text-zinc-500">
+                    <History size={28} className="mx-auto mb-3 text-zinc-600" />
+                    <p className="text-xs font-semibold text-zinc-300">No Matching Deployments</p>
+                    <p className="text-[11px] text-zinc-500 mt-1 max-w-sm mx-auto">
+                      Sync builds from your connected provider or configure your deployment URL under Integrations.
+                    </p>
+                    <div className="mt-4 flex items-center justify-center gap-2">
+                      <button
+                        onClick={handleSync}
+                        disabled={isSyncing}
+                        className="px-3 py-1.5 rounded-lg bg-white text-black text-xs font-medium hover:bg-zinc-200 transition-all flex items-center gap-1.5"
+                      >
+                        <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
+                        {isSyncing ? 'Syncing...' : 'Sync Deployments'}
+                      </button>
+                      <button
+                        onClick={() => navigateTo('integrations')}
+                        className="px-3 py-1.5 rounded-lg border border-white/[0.08] hover:bg-white/[0.04] text-zinc-300 text-xs font-medium transition-all"
+                      >
+                        Manage Integrations
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ) : (
+
                 filteredDeploys.map((deploy) => (
                   <tr key={deploy.id} className="hover:bg-white/[0.02] group transition-all">
                     {/* Project & Provider */}

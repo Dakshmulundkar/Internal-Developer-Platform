@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { usePlatform } from '../context/PlatformContext';
+import { isApiAvailable, api } from '../services/api';
 import { 
-  Bot, Send, Sparkles, HelpCircle, Terminal, 
-  Info, Cpu, ChevronRight, AlertCircle 
+  Bot, Send, HelpCircle, Terminal, 
+  Info, Cpu
 } from 'lucide-react';
 import type { AIChatMessage } from '../types/platform';
 import { aiExplanations } from '../data/seedData';
@@ -50,7 +51,7 @@ export const AIAssistant: React.FC = () => {
     }
   }, [selectedProjId, deployments, incidents]);
 
-  const handleSendMessage = (e?: React.FormEvent, customMsg?: string) => {
+  const handleSendMessage = async (e?: React.FormEvent, customMsg?: string) => {
     if (e) e.preventDefault();
     const queryText = customMsg || chatInput;
     if (!queryText.trim()) return;
@@ -72,7 +73,67 @@ export const AIAssistant: React.FC = () => {
     setChatInput('');
     setIsTyping(true);
 
-    // 2. Simulate AI Analysis trigger
+    // Try real API first
+    if (isApiAvailable()) {
+      try {
+        const targetDeploy = deployments.find(d => d.id === selectedDeployId);
+        const targetIncident = incidents.find(i => i.id === selectedIncidentId);
+        const context = {
+          incident_id: selectedIncidentId || undefined,
+          user_question: queryText,
+          title: targetIncident?.title || targetDeploy?.projectName || 'General Query',
+          description: targetIncident?.description,
+          error_message: targetDeploy?.errorMessage,
+          logs: targetDeploy?.logs,
+          provider: targetDeploy?.provider || targetIncident?.provider,
+          deployment_status: targetDeploy?.status,
+          deployment_version: targetDeploy?.version,
+          incident_severity: targetIncident?.severity,
+          incident_status: targetIncident?.status,
+        };
+        const result = await api.ai.analyze(context);
+        const aiResponse: AIChatMessage = {
+          id: 'ma_' + Math.random().toString(36).substr(2, 9),
+          sender: 'assistant',
+          content: result.explanation,
+          confidenceScore: result.confidence,
+          causes: result.causes,
+          recommendations: result.steps.map((s: { title: string; description: string }) => `${s.title}${s.description ? ': ' + s.description : ''}`),
+          createdAt: new Date().toISOString(),
+        };
+        setMessages(prev => [...prev, aiResponse]);
+        setIsTyping(false);
+        return;
+      } catch (err) {
+        console.warn('[AI] api.ai.analyze failed, using fallback:', err);
+        const targetDeploy = deployments.find(d => d.id === selectedDeployId);
+        const targetIncident = incidents.find(i => i.id === selectedIncidentId);
+        const details = targetDeploy ? aiExplanations[targetDeploy.id] : null;
+
+        const fallbackResponse: AIChatMessage = {
+          id: 'ma_' + Math.random().toString(36).substr(2, 9),
+          sender: 'assistant',
+          content: details?.explanation || `I analyzed ${targetIncident?.title || targetDeploy?.projectName || 'the active deployment'}. Telemetry indicates a runtime error during package resolution or container startup. Recommended: verify environment configurations and check recent commit diffs.`,
+          confidenceScore: details?.confidenceScore || 88,
+          causes: details?.causes || [
+            'Missing or mismatched dependency in container environment',
+            'Connection timeout or upstream service unavailability',
+            'Undeclared environment variable in provider dashboard'
+          ],
+          recommendations: details?.recommendations || [
+            'Review deployment logs for specific stack traces',
+            'Verify environment configuration and database credentials',
+            'Execute one-click rollback to the previous stable release'
+          ],
+          createdAt: new Date().toISOString(),
+        };
+        setMessages(prev => [...prev, fallbackResponse]);
+        setIsTyping(false);
+        return;
+      }
+    }
+
+    // 2. Simulate AI Analysis trigger (demo mode)
     setTimeout(() => {
       let aiResponse: Partial<AIChatMessage> = {
         id: 'ma_' + Math.random().toString(36).substr(2, 9),
@@ -118,7 +179,6 @@ export const AIAssistant: React.FC = () => {
           aiResponse.confidenceScore = 95;
         }
       } else {
-        // Fallback generic response
         aiResponse.content = `I understand you are asking: "${queryText}". As an integration co-pilot, I monitor deployment health. Let me suggest common steps:`;
         aiResponse.recommendations = [
           'Navigate to Projects to review logs metrics.',
