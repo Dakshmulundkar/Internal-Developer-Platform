@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import { 
   ArrowLeft, ArrowRight, CheckCircle2, Cpu, 
@@ -23,6 +23,14 @@ export const CreateProjectWizard: React.FC = () => {
   // Validation & Loading Simulation State
   const [connectionState, setConnectionState] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [validationError, setValidationError] = useState('');
+  const connectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup simulation timer on unmount to prevent state updates on unmounted component
+  React.useEffect(() => {
+    return () => {
+      if (connectionTimerRef.current) clearTimeout(connectionTimerRef.current);
+    };
+  }, []);
 
   const nextStep = () => {
     // Step validation checks
@@ -53,8 +61,10 @@ export const CreateProjectWizard: React.FC = () => {
       
       // Simulate credential verification checks
       setConnectionState('testing');
-      setTimeout(() => {
+      if (connectionTimerRef.current) clearTimeout(connectionTimerRef.current);
+      connectionTimerRef.current = setTimeout(() => {
         setConnectionState('success');
+        connectionTimerRef.current = null;
       }, 2500);
     }
     

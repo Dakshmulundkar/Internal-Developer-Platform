@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from database import supabase
-from dependencies import get_current_user
+from dependencies import get_current_user, get_user_project_ids
 from models.incident import (
     CommentCreate,
     FeedbackUpdate,
@@ -21,14 +21,50 @@ router = APIRouter()
 
 
 def _user_project_ids(user_id: str) -> list[str]:
-    """Return all project ids owned by user_id."""
-    res = supabase.table("projects").select("id").eq("owner_id", user_id).execute()
-    return [r["id"] for r in (res.data or [])]
+    """Return all project ids accessible to user_id (owned or team member)."""
+    return get_user_project_ids(user_id)
+
+
+def _security_audit(
+    incident_id: str,
+    service_id: str | None,
+    project_id: str | None,
+    actor_id: str,
+    actor_email: str | None,
+    action: str,
+    old_state: dict | None = None,
+    new_state: dict | None = None,
+    notes: str | None = None,
+) -> None:
+    """Append a row to security_incident_audit_logs. Failures are non-fatal."""
+    if not project_id:
+        return
+    try:
+        supabase.table("security_incident_audit_logs").insert({
+            "incident_id": incident_id,
+            "service_id": service_id,
+            "project_id": project_id,
+            "actor_id": actor_id,
+            "actor_email": actor_email,
+            "action": action,
+            "old_state": old_state,
+            "new_state": new_state,
+            "notes": notes,
+        }).execute()
+    except Exception as exc:
+        logger.warning("security audit log insert failed: %s", exc)
 
 
 @router.get("", response_model=list[IncidentResponse])
-async def list_incidents(project_id: str = None, current_user=Depends(get_current_user)):
-    """Return incidents for the authenticated user's projects, optionally filtered by project."""
+async def list_incidents(
+    project_id: str = None,
+    service_id: str = None,
+    severity: str = None,
+    status: str = None,
+    source: str = None,
+    current_user=Depends(get_current_user),
+):
+    """Return incidents for the authenticated user's projects, optionally filtered."""
     project_ids = _user_project_ids(str(current_user.id))
     if not project_ids:
         return []
@@ -36,7 +72,15 @@ async def list_incidents(project_id: str = None, current_user=Depends(get_curren
     query = supabase.table("incidents").select("*").in_("project_id", project_ids)
     if project_id:
         query = query.eq("project_id", project_id)
-    res = query.execute()
+    if service_id:
+        query = query.eq("service_id", service_id)
+    if severity:
+        query = query.eq("severity", severity)
+    if status:
+        query = query.eq("status", status)
+    if source:
+        query = query.eq("source", source)
+    res = query.order("created_at", desc=True).execute()
     return res.data or []
 
 
@@ -68,6 +112,22 @@ async def create_incident(body: IncidentCreate, current_user=Depends(get_current
     res = supabase.table("incidents").insert(body.model_dump()).execute()
     if not res.data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to create incident")
+
+    # Broadcast incident.created via WebSocket
+    try:
+        from main import broadcast_to_user
+        await broadcast_to_user(str(current_user.id), "incident.created", res.data[0])
+    except Exception:
+        pass
+
+    # Auto-deploy audit log
+    await audit_service.log(
+        user_id=str(current_user.id),
+        user_name=getattr(current_user, "email", ""),
+        action="incident.created",
+        details=f"Created incident: {body.title}",
+        project_id=body.project_id,
+    )
     return {**res.data[0], "comments": [], "timeline": []}
 
 
@@ -80,12 +140,25 @@ async def resolve_incident(incident_id: str, current_user=Depends(get_current_us
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incident not found")
 
     now = datetime.now(timezone.utc).isoformat()
-    supabase.table("incidents").update({"status": "resolved", "resolved_at": now}).eq("id", incident_id).execute()
+    res = supabase.table("incidents").update({"status": "resolved", "resolved_at": now}).eq("id", incident_id).execute()
     supabase.table("incident_timeline").insert({
         "incident_id": incident_id,
         "event": "Incident resolved",
         "type": "resolve",
     }).execute()
+
+    # Security incidents keep an immutable audit trail
+    if inc.data.get("source") == "security_triage":
+        _security_audit(
+            incident_id=incident_id,
+            service_id=inc.data.get("service_id"),
+            project_id=inc.data.get("project_id"),
+            actor_id=str(current_user.id),
+            actor_email=getattr(current_user, "email", None),
+            action="resolved",
+            old_state={"status": inc.data.get("status")},
+            new_state={"status": "resolved", "resolved_at": now},
+        )
 
     await audit_service.log(
         user_id=str(current_user.id),
@@ -102,6 +175,15 @@ async def resolve_incident(incident_id: str, current_user=Depends(get_current_us
         project_id=inc.data.get("project_id"),
         incident_id=incident_id,
     )
+
+    # Push the state change to the whole project team in real time
+    try:
+        from services.websocket_service import broadcast_incident_changed
+        updated = res.data[0] if res.data else {**dict(inc.data), "status": "resolved", "resolved_at": now}
+        await broadcast_incident_changed(updated, actor_name=getattr(current_user, "email", "") or "")
+    except Exception as exc:
+        logger.debug("incident resolve broadcast skipped (non-fatal): %s", exc)
+
     return {"success": True}
 
 
@@ -113,12 +195,35 @@ async def ignore_incident(
 ):
     """Ignore an incident with a reason."""
     project_ids = _user_project_ids(str(current_user.id))
-    inc = supabase.table("incidents").select("project_id").eq("id", incident_id).single().execute()
+    inc = supabase.table("incidents").select("*").eq("id", incident_id).single().execute()
     if not inc.data or inc.data.get("project_id") not in project_ids:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incident not found")
 
     ignored_reason = body.get("ignored_reason", "")
-    supabase.table("incidents").update({"status": "resolved", "ignored_reason": ignored_reason}).eq("id", incident_id).execute()
+    res = supabase.table("incidents").update({"status": "resolved", "ignored_reason": ignored_reason}).eq("id", incident_id).execute()
+
+    # Security incidents keep an immutable audit trail
+    if inc.data.get("source") == "security_triage":
+        _security_audit(
+            incident_id=incident_id,
+            service_id=inc.data.get("service_id"),
+            project_id=inc.data.get("project_id"),
+            actor_id=str(current_user.id),
+            actor_email=getattr(current_user, "email", None),
+            action="ignored",
+            old_state={"status": inc.data.get("status")},
+            new_state={"status": "resolved", "ignored_reason": ignored_reason},
+            notes=ignored_reason,
+        )
+
+    # Push the state change to the whole project team in real time
+    try:
+        from services.websocket_service import broadcast_incident_changed
+        updated = res.data[0] if res.data else {**dict(inc.data), "status": "resolved", "ignored_reason": ignored_reason}
+        await broadcast_incident_changed(updated, actor_name=getattr(current_user, "email", "") or "")
+    except Exception as exc:
+        logger.debug("incident ignore broadcast skipped (non-fatal): %s", exc)
+
     return {"success": True}
 
 
@@ -130,15 +235,19 @@ async def add_comment(
 ):
     """Add a comment to an incident."""
     project_ids = _user_project_ids(str(current_user.id))
-    inc = supabase.table("incidents").select("project_id").eq("id", incident_id).single().execute()
+    inc = supabase.table("incidents").select("*").eq("id", incident_id).single().execute()
     if not inc.data or inc.data.get("project_id") not in project_ids:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incident not found")
 
-    comment_res = supabase.table("incident_comments").insert({
+    user_name = getattr(current_user, "email", "").split("@")[0] or "User"
+
+    comment_row = {
         "incident_id": incident_id,
+        "user_id": str(current_user.id),
+        "user_name": user_name,
         "content": body.content,
-        "author_id": str(current_user.id),
-    }).execute()
+    }
+    comment_res = supabase.table("incident_comments").insert(comment_row).execute()
     supabase.table("incident_timeline").insert({
         "incident_id": incident_id,
         "event": f"Comment added: {body.content[:80]}",
@@ -189,4 +298,13 @@ async def update_incident(
     incident["comments"] = comments_res.data or []
     timeline_res = supabase.table("incident_timeline").select("*").eq("incident_id", incident_id).execute()
     incident["timeline"] = timeline_res.data or []
+
+    # Push the state change to the whole project team in real time so a ticket
+    # accepted / re-assigned / fixed by one member updates everyone's board.
+    try:
+        from services.websocket_service import broadcast_incident_changed
+        await broadcast_incident_changed(incident, actor_name=getattr(current_user, "email", "") or "")
+    except Exception as exc:
+        logger.debug("incident update broadcast skipped (non-fatal): %s", exc)
+
     return incident

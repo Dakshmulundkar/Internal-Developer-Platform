@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import { isApiAvailable, api } from '../services/api';
 import { 
@@ -31,6 +31,12 @@ export const AIAssistant: React.FC = () => {
     }
   ]);
   const [isTyping, setIsTyping] = useState(false);
+  const aiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup AI simulation timer on unmount
+  useEffect(() => {
+    return () => { if (aiTimerRef.current) clearTimeout(aiTimerRef.current); };
+  }, []);
 
   // Update deployment selections based on selected project
   const projectDeploys = deployments.filter(d => d.projectId === selectedProjId);
@@ -134,7 +140,8 @@ export const AIAssistant: React.FC = () => {
     }
 
     // 2. Simulate AI Analysis trigger (demo mode)
-    setTimeout(() => {
+    if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
+    aiTimerRef.current = setTimeout(() => {
       let aiResponse: Partial<AIChatMessage> = {
         id: 'ma_' + Math.random().toString(36).substr(2, 9),
         sender: 'assistant',
@@ -190,6 +197,7 @@ export const AIAssistant: React.FC = () => {
 
       setMessages(prev => [...prev, aiResponse as AIChatMessage]);
       setIsTyping(false);
+      aiTimerRef.current = null;
     }, 2000);
   };
 

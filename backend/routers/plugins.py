@@ -1,7 +1,6 @@
 """Plugin installations router — list, upsert, delete, and test plugin configs."""
 
 import logging
-import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -12,20 +11,10 @@ from pydantic import BaseModel
 from config import settings
 from database import supabase
 from dependencies import get_current_user
+from validators import is_valid_uuid
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-def is_valid_uuid(val: str) -> bool:
-    """Check if a string is a valid UUID."""
-    if not val:
-        return False
-    try:
-        uuid.UUID(str(val))
-        return True
-    except (ValueError, TypeError, AttributeError):
-        return False
 
 
 def _get_user_id(user: Any) -> str:
@@ -35,6 +24,15 @@ def _get_user_id(user: Any) -> str:
     if isinstance(user, dict):
         return str(user.get("id"))
     return str(user)
+
+
+def _validate_enabled_projects(user_id: str, project_ids: List[str]) -> List[str]:
+    """Restrict enabled_for_projects to projects the user can actually access."""
+    if not project_ids:
+        return []
+    from dependencies import get_user_project_ids
+    allowed = set(get_user_project_ids(user_id))
+    return [p for p in project_ids if p in allowed]
 
 
 class PluginConfigUpdate(BaseModel):
@@ -190,8 +188,6 @@ async def update_plugin(
             update_data["api_key_hint"] = f"{real_key[:4]}_••••••••••••••••••••{real_key[-4:]}"
         else:
             update_data["api_key_hint"] = "••••••••"
-    elif body.api_key_hint is not None and body.api_key_hint.strip() and "••••" not in body.api_key_hint:
-        update_data["api_key_encrypted"] = body.api_key_hint.strip()
 
     if body.base_url is not None:
         update_data["base_url"] = body.base_url
@@ -200,7 +196,7 @@ async def update_plugin(
         update_data["project_selector"] = body.project_selector
 
     if body.enabled_for_projects is not None:
-        update_data["enabled_for_projects"] = body.enabled_for_projects
+        update_data["enabled_for_projects"] = _validate_enabled_projects(user_id, body.enabled_for_projects)
 
     if body.plugin_name is not None:
         update_data["plugin_name"] = body.plugin_name
@@ -246,14 +242,12 @@ async def create_plugin(
         insert_data["category"] = body.category
     if body.api_key:
         insert_data["api_key_encrypted"] = body.api_key
-    elif body.api_key_hint:
-        insert_data["api_key_encrypted"] = body.api_key_hint
     if body.base_url:
         insert_data["base_url"] = body.base_url
     if body.project_selector:
         insert_data["project_selector"] = body.project_selector
     if body.enabled_for_projects:
-        insert_data["enabled_for_projects"] = body.enabled_for_projects
+        insert_data["enabled_for_projects"] = _validate_enabled_projects(user_id, body.enabled_for_projects)
     if body.webhook_url:
         insert_data["webhook_url"] = body.webhook_url
 

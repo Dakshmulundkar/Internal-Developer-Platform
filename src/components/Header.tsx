@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { usePlatform } from '../context/PlatformContext';
-import { Bell, Activity, Send, CheckCircle, XCircle } from 'lucide-react';
+import { Bell, Activity, Send, CheckCircle, XCircle, Search, ShieldAlert } from 'lucide-react';
 import type { DeploymentStatus } from '../types/platform';
 
 export const Header: React.FC = () => {
@@ -11,6 +11,7 @@ export const Header: React.FC = () => {
     notifications, 
     markNotificationAsRead, 
     triggerWebhookSimulation,
+    securityIncidents,
     navigateTo 
   } = usePlatform();
 
@@ -54,6 +55,8 @@ export const Header: React.FC = () => {
       case 'integrations': return 'Plugin Marketplace & Integrations';
       case 'plugin-config': return 'Plugin Configuration';
       case 'monitoring': return 'Monitoring & Observability';
+      case 'automation': return 'Automation Rules';
+      case 'scheduled-tasks': return 'Scheduled Tasks';
       default: return 'Control Center';
     }
   };
@@ -75,6 +78,17 @@ export const Header: React.FC = () => {
 
       {/* Actions */}
       <div className="flex items-center gap-4">
+        {/* Search */}
+        <button
+          onClick={() => {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }));
+          }}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/[0.06] hover:border-white/10 bg-white/[0.03] hover:bg-white/5 text-zinc-400 hover:text-zinc-200 text-[11px] font-semibold transition-all font-mono"
+        >
+          <Search size={14} />
+          <span className="hidden lg:inline">SEARCH</span>
+          <kbd className="text-[9px] text-zinc-600 bg-white/[0.04] border border-white/[0.08] px-1.5 py-0.5 rounded font-mono">⌘K</kbd>
+        </button>
         {/* Connection States */}
         <div className="hidden lg:flex items-center gap-3 border-r border-white/[0.06] pr-4">
           <div className="flex items-center gap-1.5 text-[10px] font-medium font-mono text-zinc-500">
@@ -174,6 +188,20 @@ export const Header: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Security Triage Badge */}
+        <button
+          onClick={() => navigateTo('incidents')}
+          title="Open security triage incidents"
+          className="p-2 bg-white/[0.03] hover:bg-white/5 text-zinc-400 hover:text-zinc-200 rounded-lg border border-white/[0.06] transition-all relative"
+        >
+          <ShieldAlert size={16} />
+          {securityIncidents.filter(i => i.status === 'open').length > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center border border-[#050505]">
+              {securityIncidents.filter(i => i.status === 'open').length}
+            </span>
+          )}
+        </button>
 
         {/* Notifications Quick Access */}
         <div className="relative" ref={notificationRef}>

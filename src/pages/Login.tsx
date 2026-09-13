@@ -26,13 +26,14 @@ export const Login: React.FC = () => {
       const ghEmail = params.get('email') || '';
       const ghAvatar = params.get('avatar') || '';
       const ghUsername = params.get('github') || '';
-      const ghToken = params.get('gh_token') || '';
+      // gh_token is intentionally NOT passed through the redirect URL anymore
+      // (security fix: GitHub access token is stored server-side during OAuth callback)
 
       if (token) {
         setGithubLoading(true);
         window.history.replaceState({}, '', '/');
         localStorage.setItem('idp_jwt', token);
-        loginUser(`__oauth__${token}__${ghEmail}__${ghName}__${ghAvatar}__${ghUsername}__${ghToken}`, 'GitHubOAuth')
+        loginUser(`__oauth__${token}__${ghEmail}__${ghName}__${ghAvatar}__${ghUsername}__`, 'GitHubOAuth')
           .catch(() => setError('GitHub login failed after redirect. Please try again.'))
           .finally(() => setGithubLoading(false));
       }

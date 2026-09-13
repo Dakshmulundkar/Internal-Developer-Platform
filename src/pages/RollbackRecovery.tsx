@@ -3,8 +3,10 @@ import { isApiAvailable, api } from '../services/api';
 import { usePlatform } from '../context/PlatformContext';
 import { 
   ArrowLeft, RefreshCw, AlertTriangle, ShieldCheck, 
-  Play, CheckCircle, Clock, Server, ArrowRight, User 
+  Play, CheckCircle, Clock, Server, ArrowRight, User, MessageSquare 
 } from 'lucide-react';
+import { ActivityFeed } from '../components/ActivityFeed';
+import { CommentSection } from '../components/CommentSection';
 import type { Deployment, Project } from '../types/platform';
 
 export const RollbackRecovery: React.FC = () => {
@@ -29,7 +31,7 @@ export const RollbackRecovery: React.FC = () => {
   const currentProject = projects.find(p => p.id === selectedProjId);
 
   const userProjectRole = teamMembers.find(
-    (tm: any) => tm.projectId === (selectedProjId || projects[0]?.id) && tm.userId === user?.id
+    (tm) => tm.projectId === (selectedProjId || projects[0]?.id) && tm.userId === user?.id
   )?.role ?? 'admin';
   
   // Filter successful candidate deployments for this project (status ready)
@@ -254,6 +256,22 @@ export const RollbackRecovery: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Collaboration: activity feed + comments for the latest rollback */}
+      {(() => {
+        const latestRollback = projectRollbacks[0] || activeRollback;
+        if (!latestRollback) return null;
+        return (
+          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-4">
+            <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider flex items-center gap-2">
+              <MessageSquare size={14} className="text-zinc-500" />
+              Collaboration on Rollback
+            </h4>
+            <ActivityFeed entityType="rollback" entityId={latestRollback.id} limit={15} />
+            <CommentSection entityType="rollback" entityId={latestRollback.id} />
+          </div>
+        );
+      })()}
     </div>
   );
 };

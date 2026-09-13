@@ -1,6 +1,6 @@
 """Pydantic models for incident resources."""
 
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -14,6 +14,12 @@ class IncidentCreate(BaseModel):
     description: Optional[str] = None
     assigned_to: Optional[str] = None
     suggested_action: Optional[str] = None
+    # Service-scoped security triage fields
+    service_id: Optional[str] = None
+    service_repository_url: Optional[str] = None
+    visibility_scope: Optional[str] = None
+    source: Optional[str] = None
+    security_metadata: Optional[Dict[str, Any]] = None
 
 
 class IncidentUpdate(BaseModel):
@@ -24,6 +30,9 @@ class IncidentUpdate(BaseModel):
     feedback_is_real: Optional[bool] = None
     feedback_comment: Optional[str] = None
     suggested_action: Optional[str] = None
+    service_id: Optional[str] = None
+    visibility_scope: Optional[str] = None
+    security_metadata: Optional[Dict[str, Any]] = None
 
 
 class CommentCreate(BaseModel):
@@ -51,5 +60,10 @@ class IncidentResponse(BaseModel):
     suggested_action: Optional[str] = None
     resolved_at: Optional[str] = None
     created_at: Optional[str] = None
+    service_id: Optional[str] = None
+    service_repository_url: Optional[str] = None
+    visibility_scope: Optional[str] = None
+    source: Optional[str] = None
+    security_metadata: Optional[Dict[str, Any]] = None
     comments: List[Any] = []
     timeline: List[Any] = []

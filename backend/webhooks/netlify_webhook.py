@@ -14,6 +14,16 @@ from services.incident_service import create_from_deployment
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+async def _eval_automation(event_type: str, entity: dict) -> None:
+    """Evaluate automation rules for an event (best-effort, non-blocking)."""
+    try:
+        from services.automation_engine import evaluate_event
+
+        await evaluate_event(event_type, entity)
+    except Exception as exc:
+        logger.warning("Automation evaluation failed: %s", exc)
+
 _EVENT_STATUS: dict = {
     "deploy_created": "queued",
     "deploy_building": "queued",
@@ -74,9 +84,57 @@ async def netlify_webhook(request: Request, background_tasks: BackgroundTasks):
 
     upsert_res = supabase.table("deployments").upsert(deployment_row, on_conflict="external_event_id").execute()
 
+    owner_id: str | None = None
+    try:
+        owner = supabase.table("projects").select("owner_id").eq("id", project_id).single().execute()
+        if owner.data:
+            owner_id = str(owner.data["owner_id"])
+    except Exception as exc:
+        logger.warning("Could not resolve project owner: %s", exc)
+
+    # Broadcast deployment status change to the project owner via WebSocket
+    try:
+        from main import broadcast_to_user
+
+        if owner_id:
+            dep_saved = upsert_res.data[0] if upsert_res.data else {"id": "unknown", **deployment_row}
+            await broadcast_to_user(owner_id, "deployment.status_changed", {
+                "id": dep_saved.get("id"),
+                "status": mapped_status,
+                "project_id": project_id,
+                "version": deployment_row["version"],
+            })
+    except Exception:
+        pass
+
     if mapped_status == "failed" and upsert_res.data:
         deployment_id: str = upsert_res.data[0].get("id", "")
         if deployment_id:
             background_tasks.add_task(create_from_deployment, deployment_id)
+
+    if upsert_res.data:
+        dep = upsert_res.data[0]
+        background_tasks.add_task(_eval_automation, "deployment.status_change", {
+            "id": dep.get("id"),
+            "project_id": project_id,
+            "status": mapped_status,
+            "version": deployment_row.get("version"),
+            "provider": deployment_row.get("provider"),
+        })
+
+    # Log activity feed entry
+    try:
+        dep_saved = upsert_res.data[0] if upsert_res.data else {}
+        supabase.table("entity_activities").insert({
+            "entity_type": "deployment",
+            "entity_id": dep_saved.get("id"),
+            "user_id": owner_id,
+            "user_name": "netlify",
+            "action": "status_change",
+            "description": f"Deployment {deployment_row['version']} status → {mapped_status}",
+            "metadata": {"event_type": event_type, "url": deployment_row.get("url")},
+        }).execute()
+    except Exception:
+        pass
 
     return {"received": True}

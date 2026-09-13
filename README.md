@@ -2,6 +2,8 @@
 
 A professional, centralized control-plane web platform for software teams to manage, monitor, and recover applications deployed on external hosting providers. Built as a final-year engineering project by **Daksh Mulundkar**.
 
+> **Version 2.1** — Includes the full audit pass (code splitting, bug fixes, security hardening) and the complete team invite flow (email + in-platform notifications).
+
 ---
 
 ## Project Title
@@ -23,6 +25,7 @@ This Internal Developer Platform (IDP) acts as a **centralized management and op
 - **Automated Incident Management** — Incidents are opened automatically when deployments fail or monitoring alerts fire. Each incident has a full detail view with tabs for Overview, Locations, Feedback, and Activity.
 - **Aether AI Diagnosis** — Evaluates error messages, build logs, and alert context to generate confidence scores, root cause breakdowns, and AI-generated remediation checklists.
 - **Controlled Rollback & Recovery** — Operators restore previous stable deployment versions via the provider API with confirmation modals and full audit trail retention.
+- **Team Invite Flow** — Admins invite members by email. Invitees receive a styled email via Resend **and** an in-platform banner notification (if they already have an Aether account) allowing one-click Accept/Decline without leaving the site.
 - **GitOps Deployment via ArgoCD** — The backend is deployed to Kubernetes using ArgoCD, which continuously syncs the cluster state from the Git repository.
 
 ---
@@ -115,7 +118,16 @@ When no backend is configured (`VITE_API_URL` not set), the platform loads reali
 | Integrations | `Integrations.tsx` | Plugin marketplace — install, configure, test, and remove plugins. |
 | Plugin Config | `PluginConfig.tsx` | API key (masked), base URL, webhook URL display, connection test, enabled-for-projects. |
 | Notifications | `Notifications.tsx` | Full alert feed, read/unread tracking, click-through to related incident or deployment. |
-| Settings | `Settings.tsx` | Provider connections, Grafana/Datadog/Sentry plugin status, notification preferences, user profile. |
+| Automation | `Automation.tsx` | IF/WHEN/THEN automation rules with Jira-like ribbon editor, drag-and-drop reorder (`sort_order`), dry-run testing, execution history. |
+| Scheduled Tasks | `ScheduledTasks.tsx` | Recurring CRON tasks (email digest, reports, health checks, alert sync) with drag-and-drop cards, run-now, pause toggles, and live scheduler status. |
+| Global Search | `SearchModal.tsx` | Ctrl+K / Cmd+K fuzzy search across projects, deployments, incidents, team members (Postgres FTS in API mode). |
+| Settings | `Settings.tsx` | Provider connections, Grafana/Datadog/Sentry plugin status, notification preferences, user profile, team management with invite flow (dual delivery: email + in-platform banner). |
+| Sharing | `ShareDialog.tsx` | Share incidents/deployments/projects via public token links (expiry + optional password), available from each detail page header. |
+
+**Collaboration across detail pages** — comment threads with @-mention autocomplete, activity timelines, file attachments, and share links with expiry/password.
+**Real-time updates** — WebSocket channel push keeps multiple users in sync when `VITE_WS_URL` is configured.
+**Role-based access** — `viewer` role sees read-only detail pages (Resolve/Ignore/rollback/configure controls hidden).
+**Team invite flow** — Admins invite by email from Settings. The invite is delivered both by email (Resend) and as an in-platform banner notification. The banner shows on every page until the invitee accepts or declines. Tokens expire in 7 days.
 
 ---
 
@@ -250,15 +262,25 @@ OPENAI_API_KEY=sk-...          # or GROQ_API_KEY for free tier
 VERCEL_WEBHOOK_SECRET=whsec_...
 NETLIFY_WEBHOOK_SECRET=whsec_...
 CORS_ORIGINS=http://localhost:5173,https://your-frontend.vercel.app
+# Team invite email (optional — falls back to console log)
+RESEND_API_KEY=re_...
+FROM_EMAIL=noreply@yourdomain.com
+FROM_NAME=Aether IDP
+# Public URLs for invite accept/decline links
+APP_FRONTEND_URL=https://your-frontend.vercel.app
+APP_BACKEND_URL=https://your-api.yourdomain.com
 ```
 
 ### Run Backend Locally
 
 ```bash
 cd backend
+python -m venv venv && .\venv\Scripts\activate   # Windows
 pip install -e .
 uvicorn main:app --reload
 ```
+
+> **Database setup** — run `backend/supabase_schema_additions.sql` once in the Supabase SQL editor to create all Phase 2 + Phase 2.1 tables: automation rules, scheduled tasks, sharing, comments, activity, team_members invite columns, and the new `notifications` table.
 
 ### Deploy Backend via ArgoCD
 
@@ -299,9 +321,9 @@ When `VITE_API_URL` is not set, the frontend automatically falls back to demo/se
 
 ---
 
-## 8. Incidents Page — Redesigned (Upcoming)
+## 8. Incidents Page — Redesigned ✅
 
-The incidents page is being redesigned to match a professional incident management tool (spec in `.kiro/specs/incidents-redesign/`):
+The incidents page has been redesigned to match a professional incident management tool (spec in `.kiro/specs/incidents-redesign/`):
 
 - **List view** — full-width table with tab filters (Open / All / Critical / Investigating / Resolved), filter chips, source plugin badges per row
 - **Split detail view** — left panel with 4 tabs (Overview / Locations / Feedback / Activity) + persistent right sidebar
@@ -316,11 +338,18 @@ The incidents page is being redesigned to match a professional incident manageme
 | Phase | Status | Description |
 |-------|--------|-------------|
 | Phase 1 — Frontend UI | ✅ Complete | All 15 pages, plugin system, monitoring, dark theme, demo mode |
-| Incidents Redesign | 🔄 Planned | GitGuardian-style incident detail view (see spec) |
-| Phase 2 — Backend | 📋 Spec Ready | FastAPI + Supabase — real auth, deployments, incidents, webhooks |
-| Phase 2 — AI | 📋 Spec Ready | Real LLM API for incident analysis and remediation steps |
-| Phase 2 — Plugins | 📋 Spec Ready | Live Grafana, Datadog, Sentry data sync |
-| Phase 2 — ArgoCD | 📋 Spec Ready | K8s manifests + ArgoCD applications + GitHub Actions CI |
+| Incidents Redesign | ✅ Complete | GitGuardian-style incident detail view (see `.kiro/specs/`) |
+| Phase 2 — Backend | ✅ Complete | FastAPI + Supabase — real auth, deployments, incidents, webhooks |
+| Phase 2 — AI | ✅ Complete | Real LLM API (OpenAI / Groq fallback) for incident analysis |
+| Phase 2 — Plugins | ✅ Complete | Live Grafana, Datadog, Sentry data sync |
+| Phase 2 — Team / RBAC | ✅ Complete | Team management + role enforcement |
+| Phase 2 — Automation & Scheduling | ✅ Complete | Automation rules + CRON tasks with Jira-style catalog + composer UI, drag-and-drop reorder |
+| Phase 2 — Search & Sharing | ✅ Complete | Postgres FTS global search (Ctrl+K) + public token share links + standalone ShareView |
+| Phase 2 — ArgoCD | ✅ Complete | K8s manifests + ArgoCD applications + GitHub Actions CI |
+| Phase 2 — Dashboard Customization | ✅ Complete | Drag-to-reorder widget layout + show/hide toggle, persisted to localStorage |
+| Phase 2 — JWT Refresh | ✅ Complete | Silent token refresh via `/auth/refresh` — sessions survive Supabase access-token expiry |
+| **Remaining** | | |
+| Run schema SQL | ⏳ Pending | Execute `backend/supabase_schema_additions.sql` in Supabase, then restart uvicorn |
 
 ---
 

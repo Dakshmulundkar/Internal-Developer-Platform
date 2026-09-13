@@ -4,8 +4,12 @@ import { aiExplanations } from '../data/seedData';
 import {
   Search, ArrowLeft, ChevronDown, CheckCircle, RefreshCw,
   Settings, Code, ExternalLink, ChevronRight, AlertTriangle,
-  MessageSquare, Zap, Terminal, Send, Filter
+  MessageSquare, Zap, Terminal, Send, Filter, Share2, Shield
 } from 'lucide-react';
+import { MentionInput } from '../components/MentionInput';
+import { MentionText } from '../components/MentionText';
+import { ShareDialog } from '../components/ShareDialog';
+import { alertSourceColor, alertSourceLabel } from '../lib/alertUtils';
 import type { Incident, IncidentSeverity, IncidentStatus } from '../types/platform';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -79,40 +83,26 @@ function openedFor(timestamp: string): string {
 
 const severityBadge = (severity: IncidentSeverity) => {
   const map: Record<IncidentSeverity, string> = {
-    critical: 'bg-red-500/15 text-red-400 border border-red-500/25',
-    high:     'bg-orange-500/10 text-orange-400 border border-orange-500/20',
-    medium:   'bg-amber-500/10 text-amber-400 border border-amber-500/20',
-    low:      'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20',
+    critical: 'bg-red-500/20 text-red-400 border border-red-500/30 rounded-full',
+    high:     'bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded-full',
+    medium:   'bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full',
+    low:      'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 rounded-full',
   };
   return map[severity] || map.low;
 };
 
 const statusBadge = (status: IncidentStatus) => {
   const map: Record<IncidentStatus, string> = {
-    open:          'bg-red-500/10 text-red-400 border border-red-500/20',
-    investigating: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
-    resolved:      'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+    open:          'bg-red-500/10 text-red-400 border border-red-500/20 rounded-full',
+    investigating: 'bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-full',
+    resolved:      'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full',
+    ignored:       'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 rounded-full',
   };
   return map[status] || map.open;
 };
 
-const sourceBadge = (provider: string) => {
-  const map: Record<string, string> = {
-    netlify: 'bg-teal-500/10 text-teal-400 border border-teal-500/20',
-    vercel:  'bg-zinc-500/10 text-zinc-200 border border-zinc-500/20',
-    grafana: 'bg-orange-500/10 text-orange-400 border border-orange-500/20',
-    datadog: 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
-    sentry:  'bg-violet-500/10 text-violet-400 border border-violet-500/20',
-  };
-  return map[provider.toLowerCase()] || 'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20';
-};
-
-const sourceLabel = (provider: string) => {
-  const map: Record<string, string> = {
-    netlify: 'NF', vercel: 'VC', grafana: 'GF', datadog: 'DD', sentry: 'SN',
-  };
-  return map[provider.toLowerCase()] || provider.slice(0, 2).toUpperCase();
-};
+const sourceBadge = alertSourceColor;
+const sourceLabel = alertSourceLabel;
 
 // ─────────────────────────────────────────────────────────────────────
 // Tab types
@@ -133,17 +123,19 @@ export const Incidents: React.FC = () => {
     activeIncidentId, teamMembers, projects, activeProjectId,
   } = usePlatform();
 
-  // Task 54 — Role-based enforcement
-  const userProjectRole = (teamMembers as any[]).find(
-    tm => tm.projectId === (activeProjectId || (projects as any[])[0]?.id) && tm.userId === user?.id
+  // Role-based enforcement — find the current user's role in the active project
+  const userProjectRole = teamMembers.find(
+    tm => tm.projectId === (activeProjectId || projects[0]?.id) && tm.userId === user?.id
   )?.role ?? 'admin';
 
   // Task 5a — State
   const [listTab, setListTab] = useState<ListTab>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [serviceFilter, setServiceFilter] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(activeIncidentId || null);
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
   const [resolveOpen, setResolveOpen] = useState(false);
+  const [showShare, setShowShare] = useState(false);
   const [ignoreOpen, setIgnoreOpen] = useState(false);
   const resolveRef = useRef<HTMLDivElement>(null);
   const ignoreRef = useRef<HTMLDivElement>(null);
@@ -164,6 +156,16 @@ export const Incidents: React.FC = () => {
   }, []);
 
   // Task 5b — Filter logic
+  // Service scope comes from the project's microservice name (RBAC-scoped)
+  const serviceNameFor = (inc: Incident): string | undefined =>
+    inc.securityMetadata?.service ||
+    projects.find(p => p.id === inc.projectId)?.serviceName;
+
+  const serviceOptions = projects
+    .filter(p => p.serviceName)
+    .map(p => ({ id: p.serviceName as string, name: p.serviceName as string }))
+    .filter((m, i, arr) => arr.findIndex(x => x.id === m.id) === i);
+
   const filteredIncidents = incidents.filter(inc => {
     const matchSearch = inc.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       inc.projectName.toLowerCase().includes(searchTerm.toLowerCase());
@@ -173,7 +175,8 @@ export const Incidents: React.FC = () => {
       listTab === 'critical'      ? inc.severity === 'critical' :
       listTab === 'investigating' ? inc.status === 'investigating' :
       listTab === 'resolved'      ? inc.status === 'resolved' : true;
-    return matchSearch && matchTab;
+    const matchService = serviceFilter === 'all' || serviceNameFor(inc) === serviceFilter;
+    return matchSearch && matchTab && matchService;
   });
 
   const selectedIncident = incidents.find(i => i.id === selectedId);
@@ -192,6 +195,18 @@ export const Incidents: React.FC = () => {
   if (selectedId === null || !selectedIncident) {
     return (
       <div className="space-y-0">
+        {/* Jira-style page header */}
+        <div className="flex items-center justify-between pb-4 mb-4 border-b border-white/[0.06]">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+              <AlertTriangle size={15} className="text-red-400" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-white tracking-tight">Incidents</h2>
+              <p className="text-[10px] text-zinc-500 mt-0.5">{incidents.length} total · {incidents.filter(i => i.status !== 'resolved').length} open</p>
+            </div>
+          </div>
+        </div>
         {/* Task 5c — Tab bar */}
         <div className="flex border-b border-white/[0.06] mb-0">
           {(['all', 'open', 'critical', 'investigating', 'resolved'] as ListTab[]).map(tab => (
@@ -214,7 +229,13 @@ export const Incidents: React.FC = () => {
 
         {/* Task 5d — Filter chips row */}
         <div className="flex items-center gap-2 py-3 flex-wrap">
-          {searchTerm && (
+          {serviceFilter !== 'all' && (
+            <span className="bg-white/[0.03] border border-white/[0.06] text-zinc-400 text-[10px] font-mono px-2 py-0.5 rounded-full flex items-center gap-1">
+              Service: {serviceFilter}
+              <button onClick={() => setServiceFilter('all')} className="text-zinc-600 hover:text-zinc-300 cursor-pointer ml-1">×</button>
+            </span>
+          )}
+            {searchTerm && (
             <span className="bg-white/[0.03] border border-white/[0.06] text-zinc-400 text-[10px] font-mono px-2 py-0.5 rounded-full flex items-center gap-1">
               Search: &quot;{searchTerm}&quot;
               <button onClick={() => setSearchTerm('')} className="text-zinc-600 hover:text-zinc-300 cursor-pointer ml-1">×</button>
@@ -236,25 +257,38 @@ export const Incidents: React.FC = () => {
           </div>
         </div>
 
-        {/* Search input */}
-        <div className="relative mb-3">
-          <Search className="absolute left-3 top-2.5 text-zinc-600" size={13} />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            placeholder="Search incidents by title or project..."
-            className="w-full bg-black/30 border border-white/[0.06] text-zinc-100 placeholder-zinc-600 focus:border-white/20 focus:outline-none rounded-lg text-xs pl-9 pr-4 py-2"
-          />
+        {/* Search + service filter */}
+        <div className="flex gap-3 mb-3 items-center">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-2.5 text-zinc-600" size={13} />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              placeholder="Search incidents by title or project..."
+              className="w-full bg-black/30 border border-white/[0.06] text-zinc-100 placeholder-zinc-600 focus:border-white/20 focus:outline-none rounded-lg text-xs pl-9 pr-4 py-2"
+            />
+          </div>
+          <select
+            value={serviceFilter}
+            onChange={e => setServiceFilter(e.target.value)}
+            title="Filter by microservice"
+            className="bg-black/30 border border-white/[0.06] text-zinc-100 text-xs px-3 py-2 rounded-lg focus:border-white/20 focus:outline-none cursor-pointer"
+          >
+            <option value="all">All Services</option>
+            {serviceOptions.map(o => (
+              <option key={o.id} value={o.id}>{o.name}</option>
+            ))}
+          </select>
         </div>
 
         {/* Task 5e — Incident table */}
         <div className="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
           <table className="w-full text-left text-xs">
             <thead>
-              <tr className="bg-white/[0.02] border-b border-white/[0.06]">
+              <tr className="border-b border-white/[0.06]">
                 {['', 'TITLE', 'SEVERITY', 'SOURCE', 'INFO', 'TAGS', 'STATUS'].map(col => (
-                  <th key={col} className="px-4 py-3 text-[10px] font-semibold text-zinc-600 uppercase tracking-wider">
+                  <th key={col} className="px-4 py-3 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">
                     {col}
                   </th>
                 ))}
@@ -271,8 +305,10 @@ export const Incidents: React.FC = () => {
                 filteredIncidents.map(inc => {
                   const tags: string[] = [];
                   if (inc.severity === 'critical' || inc.severity === 'high') tags.push('⚠ High Priority');
+                  if (inc.source === 'security_triage') tags.push('Security');
                   if (inc.deploymentId) tags.push('Deploy Linked');
                   if (monitoringAlerts.some(a => a.incidentId === inc.id)) tags.push('Alert Linked');
+                  const svcName = serviceNameFor(inc);
 
                   return (
                     <tr
@@ -281,7 +317,7 @@ export const Incidents: React.FC = () => {
                       className="group hover:bg-white/[0.02] cursor-pointer border-b border-white/[0.06] last:border-0 transition-colors"
                     >
                       {/* Checkbox */}
-                      <td className="px-4 py-3 w-8">
+                      <td className="px-4 py-3.5 w-8">
                         <input
                           type="checkbox"
                           onClick={e => e.stopPropagation()}
@@ -289,42 +325,49 @@ export const Incidents: React.FC = () => {
                         />
                       </td>
                       {/* Title */}
-                      <td className="px-4 py-3 max-w-[220px]">
+                      <td className="px-4 py-3.5 max-w-[220px]">
                         <div className="text-xs font-medium text-zinc-200 group-hover:text-white truncate">{inc.title}</div>
-                        <div className="text-[10px] text-zinc-600 font-mono mt-0.5">{inc.projectName}</div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {svcName && (
+                            <span className="px-1.5 py-[1px] rounded text-[8px] font-bold font-mono bg-purple-500/20 text-purple-400 border border-purple-500/20 whitespace-nowrap">
+                              {svcName}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-zinc-600 font-mono truncate">{inc.projectName}</span>
+                        </div>
                       </td>
                       {/* Severity */}
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-semibold uppercase ${severityBadge(inc.severity)}`}>
+                      <td className="px-4 py-3.5">
+                        <span className={`px-2.5 py-0.5 text-[9px] font-mono font-semibold uppercase ${severityBadge(inc.severity)}`}>
                           {inc.severity}
                         </span>
                       </td>
                       {/* Source */}
-                      <td className="px-4 py-3">
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono border ${sourceBadge(inc.provider)}`}>
+                      <td className="px-4 py-3.5">
+                        <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold font-mono border ${sourceBadge(inc.provider)}`}>
                           {sourceLabel(inc.provider)}
                         </span>
                       </td>
                       {/* Info */}
-                      <td className="px-4 py-3 max-w-[140px]">
+                      <td className="px-4 py-3.5 max-w-[140px]">
                         <div className="text-[10px] text-zinc-400 truncate">{inc.projectName}</div>
                         {inc.assignedTo && (
                           <div className="text-[9px] text-zinc-600 font-mono mt-0.5 truncate">{inc.assignedTo}</div>
                         )}
                       </td>
                       {/* Tags */}
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3.5">
                         <div className="flex flex-wrap gap-1">
                           {tags.map(tag => (
-                            <span key={tag} className="text-[9px] font-mono bg-white/[0.02] border border-white/[0.06] text-zinc-500 px-1.5 py-0.5 rounded whitespace-nowrap">
+                            <span key={tag} className="text-[10px] font-medium bg-white/[0.03] border border-white/[0.08] text-zinc-400 px-2 py-0.5 rounded-full whitespace-nowrap">
                               {tag}
                             </span>
                           ))}
                         </div>
                       </td>
                       {/* Status */}
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-semibold uppercase ${statusBadge(inc.status)}`}>
+                      <td className="px-4 py-3.5">
+                        <span className={`px-2.5 py-0.5 text-[9px] font-mono font-semibold uppercase ${statusBadge(inc.status)}`}>
                           {inc.status}
                         </span>
                       </td>
@@ -387,11 +430,26 @@ export const Incidents: React.FC = () => {
 
       {/* Task 6b — Title row */}
       <div className="flex items-center gap-3 mb-4">
-        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono border ${sourceBadge(selectedIncident.provider)}`}>
+        <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold font-mono border ${sourceBadge(selectedIncident.provider)}`}>
           {sourceLabel(selectedIncident.provider)}
         </span>
         <h2 className="text-xl font-semibold text-white tracking-tight">{selectedIncident.title}</h2>
+        <button
+          onClick={() => setShowShare(true)}
+          className="ml-auto flex items-center gap-1.5 bg-zinc-900 text-zinc-300 border border-white/[0.06] text-xs font-medium px-3 py-1.5 rounded-md transition-all hover:bg-zinc-800"
+        >
+          <Share2 size={12} /> Share
+        </button>
       </div>
+
+      {showShare && (
+        <ShareDialog
+          entityType="incident"
+          entityId={selectedIncident.id}
+          entityName={selectedIncident.title}
+          onClose={() => setShowShare(false)}
+        />
+      )}
 
       {/* Task 6c — 4-tab bar */}
       <div className="flex border-b border-white/[0.06] mb-4">
@@ -427,7 +485,7 @@ export const Incidents: React.FC = () => {
                     {
                       label: 'Provider',
                       value: (
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border ${sourceBadge(selectedIncident.provider)}`}>
+                        <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold border ${sourceBadge(selectedIncident.provider)}`}>
                           {selectedIncident.provider.toUpperCase()}
                         </span>
                       ),
@@ -435,7 +493,7 @@ export const Incidents: React.FC = () => {
                     {
                       label: 'Status',
                       value: (
-                        <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-semibold uppercase ${statusBadge(selectedIncident.status)}`}>
+                        <span className={`px-2.5 py-0.5 text-[9px] font-mono font-semibold uppercase ${statusBadge(selectedIncident.status)}`}>
                           {selectedIncident.status}
                         </span>
                       ),
@@ -443,7 +501,7 @@ export const Incidents: React.FC = () => {
                     {
                       label: 'Severity',
                       value: (
-                        <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-semibold uppercase ${severityBadge(selectedIncident.severity)}`}>
+                        <span className={`px-2.5 py-0.5 text-[9px] font-mono font-semibold uppercase ${severityBadge(selectedIncident.severity)}`}>
                           {selectedIncident.severity}
                         </span>
                       ),
@@ -473,6 +531,94 @@ export const Incidents: React.FC = () => {
                     ))}
                 </div>
               </div>
+
+              {/* Security Context — shown only for security triage incidents */}
+              {selectedIncident.securityMetadata && Object.keys(selectedIncident.securityMetadata).length > 0 && (
+                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Shield size={13} className="text-purple-400" />
+                    <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Security Context</h4>
+                  </div>
+
+                  <div className="space-y-0 divide-y divide-white/[0.06]">
+                    {[
+                      selectedIncident.securityMetadata.service && { label: 'Service', value: selectedIncident.securityMetadata.service },
+                      selectedIncident.securityMetadata.vulnerability_type && {
+                        label: 'Vulnerability Type',
+                        value: (
+                          <span className="capitalize">{selectedIncident.securityMetadata.vulnerability_type.replace(/_/g, ' ')}</span>
+                        ),
+                      },
+                      selectedIncident.securityMetadata.target && { label: 'Target', value: selectedIncident.securityMetadata.target },
+                      selectedIncident.securityMetadata.cve_id && { label: 'CVE', value: selectedIncident.securityMetadata.cve_id },
+                      selectedIncident.securityMetadata.package && {
+                        label: 'Package',
+                        value: `${selectedIncident.securityMetadata.package}${selectedIncident.securityMetadata.fixed_version ? ` → ${selectedIncident.securityMetadata.fixed_version}` : ''}`,
+                      },
+                      selectedIncident.securityMetadata.priority && { label: 'Priority', value: selectedIncident.securityMetadata.priority },
+                      selectedIncident.securityMetadata.assigned_team && { label: 'Assigned Team', value: selectedIncident.securityMetadata.assigned_team },
+                      selectedIncident.securityMetadata.story_points != null && { label: 'Story Points', value: String(selectedIncident.securityMetadata.story_points) },
+                      selectedIncident.securityMetadata.ai_confidence != null && {
+                        label: 'AI Confidence',
+                        value: (
+                          <span className={selectedIncident.securityMetadata.ai_confidence! >= 90 ? 'text-emerald-400' : selectedIncident.securityMetadata.ai_confidence! >= 75 ? 'text-amber-400' : 'text-zinc-400'}>
+                            {selectedIncident.securityMetadata.ai_confidence}%
+                          </span>
+                        ),
+                      },
+                    ].filter((row): row is { label: string; value: React.ReactNode } => !!row).map(row => (
+                      <div key={row.label} className="flex justify-between py-2.5 text-xs">
+                        <span className="text-zinc-500 shrink-0 mr-4">{row.label}</span>
+                        <span className="text-right font-mono text-[11px] text-zinc-300 break-all">{row.value}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {selectedIncident.securityMetadata.github_issue_url && (
+                    <a
+                      href={selectedIncident.securityMetadata.github_issue_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-blue-500/20 transition-all"
+                    >
+                      <ExternalLink size={12} /> View GitHub Issue
+                    </a>
+                  )}
+
+                  {selectedIncident.securityMetadata.remediation_steps && selectedIncident.securityMetadata.remediation_steps.length > 0 && (
+                    <div>
+                      <h5 className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-2">Remediation Steps</h5>
+                      <ol className="list-decimal list-inside space-y-1 text-[11px] text-zinc-300">
+                        {selectedIncident.securityMetadata.remediation_steps.map((step, i) => (
+                          <li key={i}>{step}</li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+
+                  {selectedIncident.securityMetadata.testing_steps && selectedIncident.securityMetadata.testing_steps.length > 0 && (
+                    <div>
+                      <h5 className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-2">Testing Steps</h5>
+                      <ul className="space-y-1 text-[11px] text-zinc-300">
+                        {selectedIncident.securityMetadata.testing_steps.map((step, i) => (
+                          <li key={i} className="flex items-start gap-1.5">
+                            <span className="text-zinc-600 mt-[1px]">☐</span>
+                            {step}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {selectedIncident.securityMetadata.scan_run_id && selectedIncident.securityMetadata.repository && (
+                    <div className="pt-1 text-[10px] text-zinc-500 font-mono truncate">
+                      Scan run {selectedIncident.securityMetadata.scan_run_id}
+                      {selectedIncident.securityMetadata.branch && ` · ${selectedIncident.securityMetadata.branch}`}
+                      {selectedIncident.securityMetadata.commit_sha && ` · ${selectedIncident.securityMetadata.commit_sha.slice(0, 7)}`}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Task 7b — Deployment logs terminal */}
               {deployment?.logs && (
@@ -526,7 +672,7 @@ export const Incidents: React.FC = () => {
                         onClick={() => navigateTo('monitoring')}
                         className="flex items-start gap-3 p-3 bg-white/[0.02] border border-white/[0.06] rounded-lg cursor-pointer hover:bg-white/[0.03] transition-all"
                       >
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono border shrink-0 ${sourceBadge(alert.source)}`}>
+                        <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold font-mono border shrink-0 ${sourceBadge(alert.source)}`}>
                           {sourceLabel(alert.source)}
                         </span>
                         <div className="flex-1 min-w-0">
@@ -574,9 +720,9 @@ export const Incidents: React.FC = () => {
                 <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
                   <table className="w-full text-left text-xs">
                     <thead>
-                      <tr className="bg-white/[0.02] border-b border-white/[0.06]">
+                      <tr className="border-b border-white/[0.06]">
                         {['DATE', 'AUTHOR', 'COMMIT', 'STAGE FAILED', 'STATUS'].map(col => (
-                          <th key={col} className="px-4 py-3 text-[10px] font-semibold text-zinc-600 uppercase tracking-wider">{col}</th>
+                          <th key={col} className="px-4 py-3 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">{col}</th>
                         ))}
                       </tr>
                     </thead>
@@ -589,21 +735,21 @@ export const Incidents: React.FC = () => {
                             onClick={() => navigateTo('deployment-details', { deploymentId: dep.id })}
                             className="hover:bg-white/[0.02] cursor-pointer transition-colors"
                           >
-                            <td className="px-4 py-3">
+                            <td className="px-4 py-3.5">
                               <div className="text-zinc-300">{new Date(dep.createdAt).toLocaleDateString()}</div>
                               <div className="text-[10px] text-zinc-600 font-mono">
                                 {new Date(dep.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </div>
                             </td>
-                            <td className="px-4 py-3 text-zinc-400">{dep.author}</td>
-                            <td className="px-4 py-3 font-mono text-[10px] text-zinc-400">{dep.commitHash}</td>
-                            <td className="px-4 py-3 font-mono text-[10px] text-zinc-500">{failedStage}</td>
-                            <td className="px-4 py-3">
-                              <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-semibold uppercase border ${
-                                dep.status === 'ready'       ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                                dep.status === 'failed'      ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                                dep.status === 'building'    ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
-                                dep.status === 'rolled_back' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' :
+                            <td className="px-4 py-3.5 text-zinc-400">{dep.author}</td>
+                            <td className="px-4 py-3.5 font-mono text-[10px] text-zinc-400">{dep.commitHash}</td>
+                            <td className="px-4 py-3.5 font-mono text-[10px] text-zinc-500">{failedStage}</td>
+                            <td className="px-4 py-3.5">
+                              <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-mono font-semibold uppercase border ${
+                                dep.status === 'ready'       ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                                dep.status === 'failed'      ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+                                dep.status === 'building'    ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
+                                dep.status === 'rolled_back' ? 'bg-violet-500/20 text-violet-400 border-violet-500/30' :
                                 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20'
                               }`}>
                                 {dep.status.replace('_', ' ')}
@@ -656,11 +802,12 @@ export const Incidents: React.FC = () => {
               {/* Task 9b — Comment + submit */}
               <div>
                 <label className="block text-xs font-semibold text-zinc-400 mb-1.5">Additional comment</label>
-                <textarea
-                  rows={4}
+                <MentionInput
                   value={feedbackComment}
-                  onChange={e => setFeedbackComment(e.target.value)}
+                  onChange={setFeedbackComment}
+                  rows={4}
                   placeholder="Write your comment (use @ to mention someone or a team)"
+                  fallbackUsers={teamMembers.map(m => ({ name: m.name, email: m.email, avatarUrl: m.avatarUrl }))}
                   className="w-full bg-black/30 border border-white/[0.06] text-zinc-100 placeholder-zinc-600 focus:border-white/20 focus:outline-none rounded-lg p-3 text-xs resize-none"
                 />
               </div>
@@ -704,11 +851,12 @@ export const Incidents: React.FC = () => {
               {/* Task 10b — Comment input */}
               {selectedIncident.status !== 'resolved' && (
                 <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 space-y-3">
-                  <textarea
-                    rows={3}
+                  <MentionInput
                     value={commentText}
-                    onChange={e => setCommentText(e.target.value)}
+                    onChange={setCommentText}
+                    rows={3}
                     placeholder="Write a comment (use @ to mention someone or a team)"
+                    fallbackUsers={teamMembers.map(m => ({ name: m.name, email: m.email, avatarUrl: m.avatarUrl }))}
                     className="w-full bg-black/30 border border-white/[0.06] text-zinc-100 placeholder-zinc-600 focus:border-white/20 focus:outline-none rounded-lg p-3 text-xs resize-none"
                   />
                   <button
@@ -745,7 +893,9 @@ export const Incidents: React.FC = () => {
                             <span className="font-semibold text-zinc-200">{item.userName}</span>
                             <span className="text-[10px] text-zinc-600 font-mono">{relativeTime(timestamp)}</span>
                           </div>
-                          <p className="text-zinc-400 leading-relaxed">{item.content}</p>
+                          <p className="text-zinc-400 leading-relaxed">
+                            <MentionText content={item.content} />
+                          </p>
                         </div>
                       </div>
                     );
@@ -789,7 +939,7 @@ export const Incidents: React.FC = () => {
 
             {/* Task 11a — Status badge */}
             <div className="mb-4">
-              <span className={`px-3 py-1 rounded text-xs font-semibold uppercase font-mono border ${statusBadge(selectedIncident.status)}`}>
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold uppercase font-mono border ${statusBadge(selectedIncident.status)}`}>
                 {selectedIncident.status}
               </span>
               {userProjectRole === 'viewer' && (
@@ -887,7 +1037,7 @@ export const Incidents: React.FC = () => {
                 {
                   label: 'Severity',
                   value: (
-                    <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-semibold uppercase ${severityBadge(selectedIncident.severity)}`}>
+                    <span className={`px-2.5 py-0.5 text-[9px] font-mono font-semibold uppercase ${severityBadge(selectedIncident.severity)}`}>
                       {selectedIncident.severity}
                     </span>
                   ),
@@ -895,7 +1045,7 @@ export const Incidents: React.FC = () => {
                 {
                   label: 'Provider',
                   value: (
-                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border ${sourceBadge(selectedIncident.provider)}`}>
+                    <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold border ${sourceBadge(selectedIncident.provider)}`}>
                       {selectedIncident.provider.toUpperCase()}
                     </span>
                   ),

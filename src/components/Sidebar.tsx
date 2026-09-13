@@ -1,8 +1,9 @@
 import React from 'react';
 import { usePlatform } from '../context/PlatformContext';
+import type { PageType } from '../context/PlatformContext';
 import { 
   LayoutDashboard, FolderGit2, History, AlertOctagon, RefreshCw, 
-  Bot, Bell, Settings, LogOut, Terminal, Puzzle, Activity
+  Bot, Bell, Settings, LogOut, Terminal, Puzzle, Activity, Zap, CalendarClock
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
@@ -13,25 +14,27 @@ export const Sidebar: React.FC = () => {
   const firingAlertsCount       = monitoringAlerts.filter(a => a.status === 'firing').length;
   const installedPluginsCount   = pluginInstallations.length;
 
-  const menuItems = [
-    { id: 'dashboard',        label: 'Dashboard',          icon: LayoutDashboard },
-    { id: 'projects',         label: 'Projects',           icon: FolderGit2 },
-    { id: 'deployments',      label: 'Deployments',        icon: History },
-    { id: 'monitoring',       label: 'Monitoring',         icon: Activity,
+  const menuItems: Array<{ id: PageType; label: string; icon: React.FC<{size?: number; className?: string}>; badge?: number; badgeColor?: string }> = [
+    { id: 'dashboard',         label: 'Dashboard',           icon: LayoutDashboard },
+    { id: 'projects',          label: 'Projects',            icon: FolderGit2 },
+    { id: 'deployments',       label: 'Deployments',         icon: History },
+    { id: 'monitoring',        label: 'Monitoring',          icon: Activity,
       badge: firingAlertsCount > 0 ? firingAlertsCount : undefined,
       badgeColor: 'bg-amber-500 text-white' },
-    { id: 'incidents',        label: 'Incidents',          icon: AlertOctagon,
+    { id: 'incidents',         label: 'Incidents',           icon: AlertOctagon,
       badge: openIncidentsCount > 0 ? openIncidentsCount : undefined,
       badgeColor: 'bg-rose-500 text-white' },
     { id: 'rollback-recovery', label: 'Rollback & Recovery', icon: RefreshCw },
-    { id: 'ai-assistant',     label: 'AI Assistant',       icon: Bot },
-    { id: 'integrations',     label: 'Integrations',       icon: Puzzle,
+    { id: 'automation',        label: 'Automation',          icon: Zap },
+    { id: 'scheduled-tasks',   label: 'Scheduled Tasks',     icon: CalendarClock },
+    { id: 'ai-assistant',      label: 'AI Assistant',        icon: Bot },
+    { id: 'integrations',      label: 'Integrations',        icon: Puzzle,
       badge: installedPluginsCount > 0 ? installedPluginsCount : undefined,
       badgeColor: 'bg-zinc-600 text-white' },
-    { id: 'notifications',    label: 'Notifications',      icon: Bell,
+    { id: 'notifications',     label: 'Notifications',       icon: Bell,
       badge: unreadNotificationsCount > 0 ? unreadNotificationsCount : undefined,
       badgeColor: 'bg-blue-500 text-white' },
-    { id: 'settings',         label: 'Settings',           icon: Settings },
+    { id: 'settings',          label: 'Settings',            icon: Settings },
   ];
 
   return (
@@ -58,7 +61,7 @@ export const Sidebar: React.FC = () => {
             (item.id === 'integrations'  && currentPage === 'plugin-config');
 
           return (
-            <button key={item.id} onClick={() => navigateTo(item.id as any)}
+            <button key={item.id} onClick={() => navigateTo(item.id)}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-all duration-150 group ${
                 isActive
                   ? 'bg-white/5 ring-1 ring-white/5 text-zinc-100'

@@ -13,9 +13,9 @@ export const PluginConfig: React.FC = () => {
   const installation = pluginInstallations.find(p => p.id === activePluginId) || pluginInstallations[0];
   const definition = installation ? pluginDefinitions.find(d => d.id === installation.pluginId) : null;
 
-  // Task 54 — Role-based enforcement
-  const userProjectRole = (teamMembers as any[]).find(
-    tm => tm.projectId === (activeProjectId || (projects as any[])[0]?.id) && tm.userId === (user as any)?.id
+  // Role-based enforcement — find the current user's role in the active project
+  const userProjectRole = teamMembers.find(
+    tm => tm.projectId === (activeProjectId || projects[0]?.id) && tm.userId === user?.id
   )?.role ?? 'admin';
   const isAdmin = userProjectRole === 'admin';
 
@@ -77,7 +77,10 @@ export const PluginConfig: React.FC = () => {
     });
     setSaveSuccess(true);
     setApiKey('');
-    setTimeout(() => setSaveSuccess(false), 3000);
+    const t = setTimeout(() => setSaveSuccess(false), 3000);
+    // Note: cleanup not critical here since the component typically stays mounted
+    // but we store it for correctness
+    return () => clearTimeout(t);
   };
 
   const toggleProject = (pid: string) => {

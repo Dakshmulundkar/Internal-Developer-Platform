@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import { isApiAvailable, api } from '../services/api';
 import { pluginDefinitions } from '../data/seedData';
@@ -39,19 +39,27 @@ export const Integrations: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState<PluginCategory | 'all'>('all');
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [installingId, setInstallingId] = useState<string | null>(null);
+  const installTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Task 54 — Role-based enforcement
-  const userProjectRole = (teamMembers as any[]).find(
-    tm => tm.projectId === (activeProjectId || (projects as any[])[0]?.id) && tm.userId === user?.id
+  // Cleanup install simulation timer on unmount
+  useEffect(() => {
+    return () => { if (installTimerRef.current) clearTimeout(installTimerRef.current); };
+  }, []);
+
+  // Role-based enforcement — find the current user's role in the active project
+  const userProjectRole = teamMembers.find(
+    tm => tm.projectId === (activeProjectId || projects[0]?.id) && tm.userId === user?.id
   )?.role ?? 'admin';
   const isAdmin = userProjectRole === 'admin';
 
   const handleInstall = (pluginId: string) => {
     setInstallingId(pluginId);
-    setTimeout(() => {
+    if (installTimerRef.current) clearTimeout(installTimerRef.current);
+    installTimerRef.current = setTimeout(() => {
       installPlugin(pluginId);
       if (isApiAvailable()) { api.monitoring.sync().catch(() => {}); }
       setInstallingId(null);
+      installTimerRef.current = null;
     }, 1200);
   };
 
@@ -130,7 +138,7 @@ export const Integrations: React.FC = () => {
 
         <div className="flex flex-wrap gap-2">
           {CATEGORIES.map(cat => (
-            <button key={cat.id} onClick={() => setCategoryFilter(cat.id as any)}
+            <button key={cat.id} onClick={() => setCategoryFilter(cat.id as PluginCategory | 'all')}
               className={`px-3 py-1.5 rounded-lg text-[10px] font-semibold border transition-all font-mono ${
                 categoryFilter === cat.id
                   ? 'border-white/20 bg-white/5 text-zinc-200'

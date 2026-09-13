@@ -3,7 +3,7 @@
 import logging
 
 from database import supabase
-from services import grafana_service, sentry_service, newrelic_service
+from services import datadog_service, grafana_service, newrelic_service, sentry_service
 from services.incident_service import create_from_alert
 
 logger = logging.getLogger(__name__)
@@ -32,13 +32,10 @@ async def sync_all_plugins() -> None:
                 alerts = await grafana_service.fetch_alerts(base_url, api_key)
 
             elif "sentry" in pid:
-                # User stores org + projects in config_data JSONB when they configure the plugin
-                # projects can be a comma-separated string or a list
                 config = plugin.get("config_data") or {}
                 org = config.get("org") or ""
                 token = plugin.get("api_key_encrypted") or ""
 
-                # Support both single project (legacy) and multiple projects
                 raw_projects = config.get("projects") or config.get("project") or ""
                 if isinstance(raw_projects, list):
                     project_list = [p.strip() for p in raw_projects if p.strip()]
@@ -49,11 +46,9 @@ async def sync_all_plugins() -> None:
                     logger.debug("Sentry plugin %s missing org/projects/token, skipping", plugin.get("id"))
                     continue
 
-                # Fetch from all configured Sentry projects and merge
                 alerts = await sentry_service.fetch_issues_multi(org, project_list, token)
 
             elif "newrelic" in pid:
-                # Replaces Datadog — user stores New Relic API key in plugin config
                 api_key = plugin.get("api_key_encrypted") or ""
                 config = plugin.get("config_data") or {}
                 account_id = config.get("account_id") or ""
@@ -62,10 +57,14 @@ async def sync_all_plugins() -> None:
                     continue
                 alerts = await newrelic_service.fetch_violations(api_key, account_id)
 
-            # Legacy fallback: keep datadog key working if someone has old data
             elif "datadog" in pid:
-                logger.info("Datadog plugin detected — please migrate to New Relic in the Integrations UI")
-                continue
+                api_key = plugin.get("api_key_encrypted") or ""
+                config = plugin.get("config_data") or {}
+                app_key = config.get("app_key") or ""
+                if not api_key:
+                    logger.debug("Datadog plugin %s missing api_key, skipping", plugin.get("id"))
+                    continue
+                alerts = await datadog_service.fetch_monitors(api_key, app_key)
 
         except Exception as exc:
             logger.warning("Plugin sync failed for %s: %s", pid, exc)
@@ -84,9 +83,28 @@ async def sync_all_plugins() -> None:
         for alert in alerts:
             try:
                 alert["project_id"] = alert.get("project_id") or fallback_project_id
-                supabase.table("monitoring_alerts").upsert(alert).execute()
+                if not alert.get("project_id"):
+                    logger.debug("Plugin alert has no project_id, skipping")
+                    continue
 
-                # Auto-create incident for critical firing alerts with no existing open incident
+                # monitoring_alerts has no natural unique key, so dedupe
+                # explicitly by (project_id, source, title) to avoid inserting
+                # a fresh row on every sync for the same alert.
+                existing_alert = (
+                    supabase.table("monitoring_alerts")
+                    .select("id")
+                    .eq("project_id", alert["project_id"])
+                    .eq("source", alert.get("source"))
+                    .eq("title", alert.get("title"))
+                    .execute()
+                )
+                if existing_alert.data:
+                    supabase.table("monitoring_alerts").update(alert).eq("id", existing_alert.data[0]["id"]).execute()
+                else:
+                    supabase.table("monitoring_alerts").insert(alert).execute()
+
+                # Auto-create incident for critical firing alerts with no existing
+                # open incident matching the same alert (project + provider + title).
                 if (
                     alert.get("severity") in ("critical", "high")
                     and alert.get("status") == "firing"
@@ -98,6 +116,7 @@ async def sync_all_plugins() -> None:
                         .eq("project_id", alert["project_id"])
                         .eq("status", "open")
                         .eq("provider", alert.get("source"))
+                        .eq("title", alert.get("title"))
                         .execute()
                     )
                     if not existing.data:

@@ -22,7 +22,18 @@ async def list_notifications(current_user=Depends(get_current_user)):
         .order("created_at", desc=True)
         .execute()
     )
-    return res.data or []
+    rows = res.data or []
+    # Flatten the JSONB `data` payload into top-level fields (team_member_id,
+    # project_id, project_name, invite_token, …) so the frontend can render
+    # invite actions (Accept/Decline needs the token) without knowing the exact
+    # column layout.
+    for row in rows:
+        payload = row.get("data")
+        if isinstance(payload, dict):
+            for key in ("project_id", "incident_id", "deployment_id", "team_member_id", "project_name", "invite_token", "role"):
+                if payload.get(key) is not None and row.get(key) is None:
+                    row[key] = payload[key]
+    return rows
 
 
 @router.patch("/{notification_id}/read")

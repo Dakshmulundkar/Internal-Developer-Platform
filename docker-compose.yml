@@ -1,0 +1,38 @@
+# =============================================================================
+# Aether IDP — local container orchestration
+# Start:  docker compose up --build
+#   - backend  : FastAPI on :8000  (env from backend/.env)
+#   - frontend : nginx+Vite build on :5173 (proxies API + WS to backend)
+# =============================================================================
+
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: idp-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: .
+      args:
+        VITE_API_URL: ""
+        VITE_USE_API: "true"
+        VITE_WS_URL: "ws://localhost:5173"
+    container_name: idp-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5173:80"

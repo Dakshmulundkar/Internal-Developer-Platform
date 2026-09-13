@@ -6,34 +6,20 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from config import settings
 from database import supabase
-from dependencies import get_current_user
+from dependencies import get_current_user, get_user_project_ids
 from models.deployment import DeploymentResponse
 from services import netlify_service, vercel_service
+from validators import is_valid_uuid
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-
-import time
-import uuid
-
 import httpx
 
 
-def is_valid_uuid(val: str) -> bool:
-    """Check if a string is a valid UUID."""
-    if not val:
-        return False
-    try:
-        uuid.UUID(str(val))
-        return True
-    except (ValueError, TypeError, AttributeError):
-        return False
-
-
 def _user_project_ids(user_id: str) -> list[str]:
-    res = supabase.table("projects").select("id").eq("owner_id", user_id).execute()
-    return [r["id"] for r in (res.data or [])]
+    # Delegate to shared helper in dependencies.py
+    return get_user_project_ids(user_id)
 
 
 @router.get("", response_model=list[DeploymentResponse])
@@ -49,7 +35,7 @@ async def list_deployments(project_id: str = None, current_user=Depends(get_curr
         if is_valid_uuid(project_id):
             query = query.eq("project_id", project_id)
         else:
-            p_res = supabase.table("projects").select("id").eq("name", project_id).eq("owner_id", user_id).execute()
+            p_res = supabase.table("projects").select("id").eq("name", project_id).in_("id", project_ids).execute()
             if p_res.data:
                 query = query.eq("project_id", p_res.data[0]["id"])
             else:
@@ -57,42 +43,8 @@ async def list_deployments(project_id: str = None, current_user=Depends(get_curr
     res = query.order("created_at", desc=True).execute()
     existing_deployments = res.data or []
 
-    # If no deployments exist in DB, auto-detect from configured projects or Vercel plugin
-    if not existing_deployments and project_ids:
-        target_pid = project_ids[0]
-        try:
-            # Check project URL or Vercel plugin selector
-            p_data = supabase.table("projects").select("*").eq("id", target_pid).single().execute().data or {}
-            pi_data = (supabase.table("plugin_installations").select("*").eq("installed_by", user_id).eq("plugin_id", "vercel").execute().data or [{}])[0]
-            
-            raw_url = p_data.get("url") or pi_data.get("base_url") or ""
-            raw_sel = pi_data.get("project_selector") or p_data.get("vercel_project_id") or ""
-            
-            clean_sel = raw_sel.replace("https://", "").replace("http://", "").strip().rstrip("/")
-            if clean_sel.endswith(".vercel.app"):
-                clean_name = clean_sel[:-11]
-            else:
-                clean_name = clean_sel
-                
-            dep_url = raw_url if raw_url.startswith("http") else (f"https://{clean_name}.vercel.app" if clean_name else "https://testing-brown-delta.vercel.app")
-            
-            new_dep = {
-                "project_id": target_pid,
-                "version": "v1.0.0",
-                "status": "ready",
-                "commit_hash": "prod-live",
-                "commit_message": f"Initial production deployment on {dep_url}",
-                "branch": "main",
-                "author": "Vercel Deployer",
-                "provider": "vercel",
-                "url": dep_url,
-                "external_event_id": f"deploy-live-{clean_name or target_pid}",
-            }
-            supabase.table("deployments").upsert(new_dep, on_conflict="external_event_id").execute()
-            existing_deployments = [new_dep]
-        except Exception as exc:
-            logger.warning("Auto-deployment creation skipped: %s", exc)
-
+    # If no deployments exist in DB, don't fabricate fake records.
+    # Real deployments come from provider sync (/sync/{project_id}) or webhooks.
     return existing_deployments
 
 
@@ -117,9 +69,13 @@ async def get_deployment(deployment_id: str, current_user=Depends(get_current_us
 async def sync_deployments(project_id: str, current_user=Depends(get_current_user)):
     """Fetch latest deployments from provider or live endpoint and upsert them into Supabase."""
     user_id = str(current_user.id)
+    project_ids = _user_project_ids(user_id)
+    if not project_ids:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
     if not is_valid_uuid(project_id):
-        # Resolve project by name if needed
-        p_res = supabase.table("projects").select("*").eq("name", project_id).eq("owner_id", user_id).execute()
+        # Resolve project by name within the user's accessible projects
+        p_res = supabase.table("projects").select("*").eq("name", project_id).in_("id", project_ids).execute()
         if p_res.data:
             project = p_res.data[0]
             project_id = project["id"]
@@ -127,11 +83,9 @@ async def sync_deployments(project_id: str, current_user=Depends(get_current_use
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid project ID format: {project_id}")
     else:
         proj_res = supabase.table("projects").select("*").eq("id", project_id).execute()
-        if not proj_res.data:
+        if not proj_res.data or project_id not in project_ids:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
         project = proj_res.data[0]
-        if project.get("owner_id") != user_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
     # Check Vercel plugin installation
     pi_res = supabase.table("plugin_installations").select("*").eq("installed_by", user_id).eq("plugin_id", "vercel").execute()
@@ -155,45 +109,7 @@ async def sync_deployments(project_id: str, current_user=Depends(get_current_use
         except Exception as exc:
             logger.warning("Vercel API fetch failed for %s: %s", clean_selector, exc)
 
-    # 2. Live URL probing fallback if no deployments returned from API
-    if not deployments:
-        candidate_url = (
-            project.get("url")
-            or vercel_pi.get("base_url")
-            or (f"https://{clean_selector}.vercel.app" if clean_selector else None)
-            or "https://testing-brown-delta.vercel.app"
-        )
-        if candidate_url:
-            candidate_url = candidate_url if candidate_url.startswith("http") else f"https://{candidate_url}"
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.get(candidate_url, follow_redirects=True)
-                    is_live = resp.status_code < 500
-                    deployments.append({
-                        "version": f"v1.0.{int(time.time()) % 100}",
-                        "status": "ready" if is_live else "failed",
-                        "commit_hash": "prod-live",
-                        "commit_message": f"Deployment live on {candidate_url}",
-                        "branch": "main",
-                        "author": "Vercel Deployer",
-                        "provider": "vercel",
-                        "url": candidate_url,
-                        "external_event_id": f"vercel-{clean_selector or project_id}",
-                    })
-            except Exception as exc:
-                logger.warning("Failed probing candidate deployment %s: %s", candidate_url, exc)
-                deployments.append({
-                    "version": "v1.0.0",
-                    "status": "ready",
-                    "commit_hash": "prod-live",
-                    "commit_message": f"Configured deployment for {clean_selector or project.get('name')}",
-                    "branch": "main",
-                    "author": "Vercel Deployer",
-                    "provider": "vercel",
-                    "url": candidate_url,
-                    "external_event_id": f"vercel-{clean_selector or project_id}",
-                })
-
+    # 2. No fallback fabrication — return whatever the provider actually returned
     synced = 0
     for dep in deployments:
         dep["project_id"] = project_id

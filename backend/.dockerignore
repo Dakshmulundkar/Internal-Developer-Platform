@@ -1,10 +1,12 @@
-__pycache__/
-*.pyc
+# Never copy secrets, local env, or dev artifacts into the image.
 *.pyo
 *.pyd
 .env
 .env.*
 !.env.example
+venv/
+__pycache__/
+*.pyc
 .git/
 .gitignore
 tests/

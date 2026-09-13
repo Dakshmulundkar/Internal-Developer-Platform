@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from database import supabase
-from dependencies import get_current_user
+from dependencies import get_current_user, get_user_project_ids
 from models.project import ProjectCreate, ProjectResponse, ProjectUpdate
 from services import audit_service
 
@@ -15,8 +15,16 @@ router = APIRouter()
 
 @router.get("", response_model=list[ProjectResponse])
 async def list_projects(current_user=Depends(get_current_user)):
-    """Return all projects owned by the authenticated user."""
-    res = supabase.table("projects").select("*").eq("owner_id", str(current_user.id)).execute()
+    """Return all projects accessible to the authenticated user.
+
+    A project is accessible when the user owns it OR when they are an ACCEPTED
+    member of that project's team. Accepted team invites must make the shared
+    project appear here, otherwise the invitee never sees it after accepting.
+    """
+    accessible_ids = get_user_project_ids(str(current_user.id))
+    if not accessible_ids:
+        return []
+    res = supabase.table("projects").select("*").in_("id", accessible_ids).execute()
     return res.data or []
 
 
@@ -41,13 +49,19 @@ async def create_project(body: ProjectCreate, current_user=Depends(get_current_u
 
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(project_id: str, current_user=Depends(get_current_user)):
-    """Fetch a single project — 404 if not found or not owned by the user."""
+    """Fetch a single project — 404 if not found or the user lacks access.
+
+    Access is granted to the owner and to ACCEPTED team members, matching the
+    list endpoint so invitees can open the project they just joined.
+    """
     res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
     if not res.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     project = res.data
     if project.get("owner_id") != str(current_user.id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        accessible_ids = get_user_project_ids(str(current_user.id))
+        if project_id not in accessible_ids:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     return project
 
 

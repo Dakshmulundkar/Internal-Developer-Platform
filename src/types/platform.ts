@@ -32,6 +32,11 @@ export interface Project {
   webhookSecret?: string;
   webhookUrl?: string;
   apiTokenHint?: string;
+  // Microservice identification (security triage)
+  serviceName?: string;
+  serviceRepositoryUrl?: string;
+  serviceType?: string;
+  securityConfig?: Record<string, unknown>;
 }
 
 export interface Deployment {
@@ -59,7 +64,31 @@ export interface Deployment {
 }
 
 export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
-export type IncidentStatus = 'open' | 'investigating' | 'resolved';
+export type IncidentStatus = 'open' | 'investigating' | 'resolved' | 'ignored';
+
+export interface SecurityMetadata {
+  source?: string;
+  service?: string;
+  service_id?: string;
+  vulnerability_type?: string;
+  target?: string;
+  severity_trivy?: string;
+  cve_id?: string;
+  package?: string;
+  fixed_version?: string;
+  priority?: string;
+  assigned_team?: string;
+  story_points?: number;
+  ai_confidence?: number;
+  remediation_steps?: string[];
+  testing_steps?: string[];
+  github_issue_url?: string;
+  scan_run_id?: string;
+  scan_timestamp?: string;
+  repository?: string;
+  branch?: string;
+  commit_sha?: string;
+}
 
 export interface IncidentComment {
   id: string;
@@ -76,7 +105,7 @@ export interface Incident {
   projectName: string;
   deploymentId?: string;
   severity: IncidentSeverity;
-  provider: ProviderType;
+  provider: ProviderType | 'trivy';
   title: string;
   description: string;
   status: IncidentStatus;
@@ -93,6 +122,12 @@ export interface Incident {
   ignoredReason?: string;
   feedbackIsReal?: boolean;
   feedbackComment?: string;
+  // Security triage / microservice scoping
+  serviceId?: string;
+  serviceRepositoryUrl?: string;
+  visibilityScope?: string;
+  source?: string;
+  securityMetadata?: SecurityMetadata;
 }
 
 export interface RollbackOperation {
@@ -115,10 +150,12 @@ export interface Notification {
   id: string;
   title: string;
   message: string;
-  type: 'info' | 'success' | 'warning' | 'error' | 'incident';
+  type: 'info' | 'success' | 'warning' | 'error' | 'incident' | 'team_invite';
   projectId?: string;
   incidentId?: string;
   deploymentId?: string;
+  teamMemberId?: string;   // for team_invite notifications
+  inviteToken?: string;    // for team_invite notifications (needed to Accept/Decline)
   read: boolean;
   createdAt: string;
 }
@@ -199,7 +236,8 @@ export interface PluginInstallation {
 
 export type AlertSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export type AlertStatus = 'firing' | 'resolved' | 'pending' | 'no_data';
-export type AlertSource = 'grafana' | 'newrelic' | 'sentry' | 'vercel' | 'netlify';
+// 'datadog' is used across Dashboard, Monitoring, Incidents, DeploymentDetails
+export type AlertSource = 'grafana' | 'newrelic' | 'sentry' | 'vercel' | 'netlify' | 'datadog';
 
 export interface MonitoringAlert {
   id: string;
@@ -250,8 +288,12 @@ export interface TeamMember {
   avatarUrl?: string;
   role: ProjectRole;
   projectId: string;
+  projectName?: string;  // populated when fetching pending invites
   addedAt: string;
   addedBy: string;
+  status?: 'invited' | 'accepted' | 'declined';  // invite lifecycle
+  inviteToken?: string;     // present on pending invites (used for accept/decline URL)
+  inviteExpiresAt?: string; // ISO string — 7 days from invite creation
 }
 
 // ────────────────────────────────────────────────

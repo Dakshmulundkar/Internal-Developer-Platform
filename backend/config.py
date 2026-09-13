@@ -32,9 +32,10 @@ class Settings(BaseSettings):
     # ── Webhook secrets (server-level — used to verify incoming webhooks) ─────
     VERCEL_WEBHOOK_SECRET: str = ""
     NETLIFY_WEBHOOK_SECRET: str = ""
+    GRAFANA_WEBHOOK_SECRET: str = ""
+    GITHUB_WEBHOOK_SECRET: str = ""
     VERCEL_API_TOKEN: str = ""
     NETLIFY_API_TOKEN: str = ""
-    PUBLIC_WEBHOOK_URL: str = ""
 
     # ── LLM (server-level — Groq is primary, OpenAI is optional fallback) ─────
     GROQ_API_KEY: str = ""
@@ -43,6 +44,17 @@ class Settings(BaseSettings):
     # ── GitHub OAuth App ─────────────────────────────────────────────────────
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""
+
+    # ── Email (Resend) ─────────────────────────────────────────────────────
+    RESEND_API_KEY: str = ""
+    FROM_EMAIL: str = "noreply@localhost"
+    FROM_NAME: str = "Aether IDP"
+
+    # ── App base URLs (override in production) ────────────────────────────────
+    # These default to localhost for development. Set them in backend/.env for
+    # staging/production deployments so GitHub OAuth redirects work correctly.
+    APP_FRONTEND_URL: str = "http://localhost:5173"
+    APP_BACKEND_URL: str = "http://localhost:8000"
 
     # ── CORS ──────────────────────────────────────────────────────────────────
     CORS_ORIGINS: str = "http://localhost:5173"

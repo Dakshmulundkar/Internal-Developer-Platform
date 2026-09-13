@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import { 
   ArrowLeft, Terminal, Bot, RefreshCw, AlertCircle, 
-  Server, GitCommit, User, Sparkles
+  Server, GitCommit, User, Sparkles, MessageSquare, Share2
 } from 'lucide-react';
 import { aiExplanations } from '../data/seedData';
+import { ActivityFeed } from '../components/ActivityFeed';
+import { CommentSection } from '../components/CommentSection';
+import { ShareDialog } from '../components/ShareDialog';
+import { alertSourceColor, alertSourceLabel } from '../lib/alertUtils';
 import type { DeploymentStatus } from '../types/platform';
 
 export const DeploymentDetails: React.FC = () => {
@@ -19,6 +23,13 @@ export const DeploymentDetails: React.FC = () => {
 
   const [isRetrying, setIsRetrying] = useState(false);
   const [showRollbackModal, setShowRollbackModal] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => { if (retryTimerRef.current) clearTimeout(retryTimerRef.current); };
+  }, []);
 
   const deployment = deployments.find(d => d.id === activeDeploymentId);
 
@@ -44,10 +55,11 @@ export const DeploymentDetails: React.FC = () => {
 
   const handleRetryPipeline = () => {
     setIsRetrying(true);
-    triggerWebhookSimulation(deployment.projectId, 'ready'); // force success on retry for demo smoothness
-    
-    setTimeout(() => {
+    triggerWebhookSimulation(deployment.projectId, 'ready');
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = setTimeout(() => {
       setIsRetrying(false);
+      retryTimerRef.current = null;
       navigateTo('deployments');
     }, 1500);
   };
@@ -75,10 +87,10 @@ export const DeploymentDetails: React.FC = () => {
       {/* Back button */}
       <button
         onClick={() => navigateTo('deployments')}
-        className="flex items-center gap-2 text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
+        className="flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-zinc-200 transition-colors"
       >
         <ArrowLeft size={14} />
-        Back to deployment history
+        Back to deployments
       </button>
 
       {/* Summary grid */}
@@ -87,20 +99,27 @@ export const DeploymentDetails: React.FC = () => {
         <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 lg:col-span-2 space-y-4">
           <div className="flex justify-between items-start border-b border-white/[0.06] pb-4">
             <div>
-              <span className="font-mono text-[10px] text-zinc-500 font-bold uppercase block">
-                Deployment Registry
-              </span>
-              <h3 className="text-base font-semibold text-white tracking-tight mt-1">
-                Pipeline Run: {deployment.version}
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-wider bg-white/[0.03] border border-white/[0.06] px-2 py-0.5 rounded">
+                  {deployment.provider.toUpperCase()}
+                </span>
+                <span className="text-[10px] font-mono text-zinc-600">{deployment.id.slice(0, 8).toUpperCase()}</span>
+              </div>
+              <h3 className="text-base font-semibold text-white tracking-tight">
+                {deployment.version}
               </h3>
               <p className="text-xs text-zinc-400 mt-1">
-                Project: <b className="text-zinc-200">{deployment.projectName}</b> • Provider: <span className="uppercase text-[10px] bg-black/40 text-zinc-200 border border-white/10 px-1 py-0.5 rounded font-mono font-bold">{deployment.provider}</span>
+                {deployment.projectName} · {deployment.branch}
               </p>
             </div>
-            
             <div className="text-right">
-              <span className="text-[10px] text-zinc-500 font-mono">Status Indicator</span>
-              <div className={`text-xs mt-1 uppercase font-mono ${getStatusStyle(deployment.status)}`}>
+              <div className={`text-xs font-mono font-bold uppercase px-2.5 py-1 rounded-full border ${
+                deployment.status === 'ready'       ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                deployment.status === 'failed'      ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+                deployment.status === 'building'    ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
+                deployment.status === 'rolled_back' ? 'bg-violet-500/20 text-violet-400 border-violet-500/30' :
+                'bg-zinc-500/10 text-zinc-400 border-zinc-500/20'
+              }`}>
                 {deployment.status.replace('_', ' ')}
               </div>
             </div>
@@ -109,34 +128,34 @@ export const DeploymentDetails: React.FC = () => {
           {/* Details Row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
             <div>
-              <span className="text-zinc-500 block">Commit Hash</span>
-              <span className="font-mono text-zinc-300 flex items-center gap-1 mt-1">
-                <GitCommit size={12} className="text-zinc-600" />
+              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold block mb-1">Commit</span>
+              <span className="font-mono text-zinc-300 flex items-center gap-1">
+                <GitCommit size={11} className="text-zinc-600" />
                 {deployment.commitHash}
               </span>
             </div>
             <div>
-              <span className="text-zinc-500 block">Target Branch</span>
-              <span className="font-mono text-zinc-300 mt-1 block">{deployment.branch}</span>
+              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold block mb-1">Branch</span>
+              <span className="font-mono text-zinc-300 block">{deployment.branch}</span>
             </div>
             <div>
-              <span className="text-zinc-500 block">Triggered By</span>
-              <span className="text-zinc-300 flex items-center gap-1 mt-1">
-                <User size={12} className="text-zinc-600" />
+              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold block mb-1">Author</span>
+              <span className="text-zinc-300 flex items-center gap-1">
+                <User size={11} className="text-zinc-600" />
                 {deployment.author}
               </span>
             </div>
             <div>
-              <span className="text-zinc-500 block">Duration</span>
-              <span className="font-mono text-zinc-300 mt-1 block">
+              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold block mb-1">Duration</span>
+              <span className="font-mono text-zinc-300 block">
                 {deployment.durationMs > 0 ? `${(deployment.durationMs / 1000).toFixed(1)}s` : '--'}
               </span>
             </div>
           </div>
 
-          <div className="bg-black/20 border border-white/5 p-3 rounded text-xs">
-            <span className="text-zinc-500 block mb-1">Commit Message</span>
-            <p className="font-semibold text-zinc-200 font-mono">{deployment.commitMessage}</p>
+          <div className="bg-white/[0.02] border border-white/[0.06] p-3 rounded-lg text-xs">
+            <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold block mb-1">Commit message</span>
+            <p className="text-zinc-200 font-mono text-[11px] leading-relaxed">{deployment.commitMessage}</p>
           </div>
 
           {/* Action Trigger Options */}
@@ -159,12 +178,29 @@ export const DeploymentDetails: React.FC = () => {
                 Trigger Quick Rollback
               </button>
             )}
+
+            <button
+              onClick={() => setShowShare(true)}
+              className="bg-zinc-900 text-zinc-300 border border-white/[0.06] hover:bg-zinc-800 font-medium py-2 px-4 rounded-lg text-xs transition-all flex items-center gap-1.5"
+            >
+              <Share2 size={14} />
+              Share
+            </button>
           </div>
         </div>
 
+        {showShare && (
+          <ShareDialog
+            entityType="deployment"
+            entityId={deployment.id}
+            entityName={`${deployment.project} · ${deployment.branch} @ ${deployment.commitMessage}`}
+            onClose={() => setShowShare(false)}
+          />
+        )}
+
         {/* Build Stages Progress Panel */}
         <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-4">
-          <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Build Stages Progression</h4>
+          <h4 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Build stages</h4>
           
           <div className="space-y-4 relative pl-4 before:content-[''] before:absolute before:left-[19px] before:top-2 before:bottom-2 before:w-0.5 before:bg-white/[0.06]">
             {deployment.stages ? (
@@ -207,9 +243,9 @@ export const DeploymentDetails: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Diagnostic Raw Failure Output */}
           <div className="bg-white/[0.03] border border-red-500/20 rounded-xl p-5 lg:col-span-1 space-y-3">
-            <h4 className="text-xs font-semibold text-red-400 uppercase tracking-wider flex items-center gap-1.5">
-              <AlertCircle size={14} />
-              Raw Exception Output
+            <h4 className="text-[10px] font-semibold text-red-400 uppercase tracking-wider flex items-center gap-1.5">
+              <AlertCircle size={13} />
+              Exception output
             </h4>
             
             <div className="bg-red-500/5 border border-red-500/20 p-4 rounded-lg font-mono text-[11px] text-red-300 leading-normal overflow-x-auto whitespace-pre-wrap">
@@ -224,9 +260,9 @@ export const DeploymentDetails: React.FC = () => {
           {/* AI Analysis Diagnostic Assistance */}
           <div className="bg-white/[0.03] border border-white/10 rounded-xl p-5 lg:col-span-2 space-y-4">
             <div className="flex justify-between items-center border-b border-white/[0.06] pb-3">
-              <h4 className="text-xs font-semibold text-white uppercase tracking-wider flex items-center gap-2">
-                <Sparkles size={14} className="text-zinc-400" />
-                Aether AI Cause Diagnosis
+              <h4 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 flex items-center gap-2">
+                <Sparkles size={13} className="text-zinc-500" />
+                AI cause diagnosis
               </h4>
               {aiAnalysis && (
                 <span className="text-[10px] font-mono font-bold bg-white/5 text-zinc-300 border border-white/[0.06] px-2 py-0.5 rounded">
@@ -286,12 +322,12 @@ export const DeploymentDetails: React.FC = () => {
 
       {/* Terminal log panel */}
       <div className="bg-black/20 border border-white/[0.06] rounded-xl overflow-hidden">
-        <div className="bg-white/[0.02] border-b border-white/[0.06] px-4 py-3 flex items-center justify-between text-xs">
+        <div className="bg-white/[0.02] border-b border-white/[0.06] px-4 py-2.5 flex items-center justify-between text-xs">
           <div className="flex items-center gap-2">
-            <Terminal size={14} className="text-zinc-500" />
-            <span className="font-mono text-zinc-400 uppercase tracking-wide">Execution Console Logs</span>
+            <Terminal size={13} className="text-zinc-500" />
+            <span className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider">Execution logs</span>
           </div>
-          <span className="font-mono text-[9px] text-zinc-600">PAGER=cat</span>
+          <span className="font-mono text-[9px] text-zinc-600">stdout · stderr</span>
         </div>
 
         <div className="p-5 font-mono text-[11px] text-zinc-400 space-y-1 max-h-96 overflow-y-auto leading-relaxed">
@@ -322,20 +358,8 @@ export const DeploymentDetails: React.FC = () => {
           i.release === deployment.version || i.deploymentId === deployment.id
         );
 
-        const sourceBadge = (source: string) => {
-          const map: Record<string, string> = {
-            netlify: 'bg-teal-500/10 text-teal-400 border border-teal-500/20',
-            vercel:  'bg-zinc-500/10 text-zinc-200 border border-zinc-500/20',
-            grafana: 'bg-orange-500/10 text-orange-400 border border-orange-500/20',
-            datadog: 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
-            sentry:  'bg-violet-500/10 text-violet-400 border border-violet-500/20',
-          };
-          return map[source.toLowerCase()] || 'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20';
-        };
-        const sourceLabel = (source: string) => {
-          const m: Record<string, string> = { netlify:'NF',vercel:'VC',grafana:'GF',datadog:'DD',sentry:'SN' };
-          return m[source.toLowerCase()] || source.slice(0,2).toUpperCase();
-        };
+        const sourceBadge = alertSourceColor;
+        const sourceLabel = alertSourceLabel;
         const sevClass = (sev: string) => {
           const m: Record<string, string> = {
             critical:'text-red-400 bg-red-500/10 border border-red-500/20',
@@ -362,11 +386,11 @@ export const DeploymentDetails: React.FC = () => {
 
         return (
           <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-5">
-            <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Plugin Signals Near This Deployment</h4>
+            <h4 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Plugin signals near this deployment</h4>
 
             {/* Sub-section 1: Monitoring Alerts ±30 min */}
             <div>
-              <h5 className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-3">Monitoring Alerts (±30 min)</h5>
+              <h5 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-3">Monitoring alerts (±30 min)</h5>
               {nearAlerts.length === 0 ? (
                 <p className="text-xs text-zinc-600 italic">No alerts fired within ±30 minutes of this deployment.</p>
               ) : (
@@ -374,10 +398,10 @@ export const DeploymentDetails: React.FC = () => {
                   {nearAlerts.map((alert: any) => (
                     <div key={alert.id} onClick={() => navigateTo('monitoring')}
                       className="flex items-center gap-3 p-2.5 bg-white/[0.02] border border-white/[0.06] rounded-lg cursor-pointer hover:bg-white/[0.04] transition-all">
-                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono border shrink-0 ${sourceBadge(alert.source)}`}>
+                      <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold font-mono border shrink-0 ${sourceBadge(alert.source)}`}>
                         {sourceLabel(alert.source)}
                       </span>
-                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono border shrink-0 ${sevClass(alert.severity)}`}>
+                      <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-mono border shrink-0 ${sevClass(alert.severity)}`}>
                         {alert.severity}
                       </span>
                       <span className="text-xs text-zinc-300 flex-1 truncate">{alert.title}</span>
@@ -390,14 +414,14 @@ export const DeploymentDetails: React.FC = () => {
 
             {/* Sub-section 2: Sentry Issues in This Release */}
             <div>
-              <h5 className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-3">Sentry Issues in This Release</h5>
+              <h5 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-3">Sentry issues in this release</h5>
               {releaseIssues.length === 0 ? (
                 <p className="text-xs text-zinc-600 italic">No Sentry issues linked to this release version.</p>
               ) : (
                 <div className="space-y-2">
                   {releaseIssues.map(issue => (
                     <div key={issue.id} className="flex items-center gap-3 p-2.5 bg-white/[0.02] border border-white/[0.06] rounded-lg">
-                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono border shrink-0 ${levelClass(issue.level)}`}>
+                      <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-mono border shrink-0 ${levelClass(issue.level)}`}>
                         {issue.level}
                       </span>
                       <span className="text-xs text-zinc-300 flex-1 truncate">{issue.title}</span>
@@ -415,6 +439,16 @@ export const DeploymentDetails: React.FC = () => {
           </div>
         );
       })()}
+
+      {/* Collaboration: activity feed + comments */}
+      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-4">
+        <h4 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 flex items-center gap-2">
+          <MessageSquare size={13} className="text-zinc-600" />
+          Collaboration
+        </h4>
+        <ActivityFeed entityType="deployment" entityId={deployment.id} limit={15} />
+        <CommentSection entityType="deployment" entityId={deployment.id} />
+      </div>
 
       {/* Quick Rollback Confirmation Modal */}
       {showRollbackModal && stableTarget && (

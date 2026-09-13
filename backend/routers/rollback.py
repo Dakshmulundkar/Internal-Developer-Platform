@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from database import supabase
-from dependencies import get_current_user
+from dependencies import get_current_user, get_user_project_ids
 from models.rollback import RollbackRequest, RollbackResponse
 from services.rollback_service import execute_rollback, poll_rollback_status
 
@@ -20,6 +20,13 @@ async def start_rollback(
     current_user=Depends(get_current_user),
 ):
     """Initiate a rollback and kick off background polling."""
+    project_ids = get_user_project_ids(str(current_user.id))
+    if body.project_id not in project_ids:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied — you are not a member of this project",
+        )
+
     try:
         rollback_id = await execute_rollback(
             project_id=body.project_id,
@@ -39,8 +46,9 @@ async def start_rollback(
 @router.get("/{rollback_id}", response_model=RollbackResponse)
 async def get_rollback(rollback_id: str, current_user=Depends(get_current_user)):
     """Fetch the current status of a rollback operation."""
+    project_ids = get_user_project_ids(str(current_user.id))
     res = supabase.table("rollback_operations").select("*").eq("id", rollback_id).single().execute()
-    if not res.data:
+    if not res.data or res.data.get("project_id") not in project_ids:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rollback not found")
     op = res.data
     return RollbackResponse(

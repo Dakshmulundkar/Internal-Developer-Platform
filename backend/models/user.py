@@ -18,6 +18,12 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class RefreshRequest(BaseModel):
+    """Request body for POST /auth/refresh."""
+
+    refresh_token: str
+
+
 class GithubLoginRequest(BaseModel):
     """Request body for POST /auth/github."""
 

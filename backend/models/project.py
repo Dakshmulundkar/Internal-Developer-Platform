@@ -1,6 +1,6 @@
 """Pydantic models for project resources."""
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel
 
@@ -14,6 +14,11 @@ class ProjectCreate(BaseModel):
     provider: str  # 'vercel' | 'netlify'
     vercel_project_id: Optional[str] = None
     netlify_site_id: Optional[str] = None
+    # Microservice identification (security triage)
+    service_name: Optional[str] = None
+    service_repository_url: Optional[str] = None
+    service_type: Optional[str] = None
+    security_config: Optional[Dict[str, Any]] = None
 
 
 class ProjectUpdate(BaseModel):
@@ -26,6 +31,10 @@ class ProjectUpdate(BaseModel):
     vercel_project_id: Optional[str] = None
     netlify_site_id: Optional[str] = None
     status: Optional[str] = None
+    service_name: Optional[str] = None
+    service_repository_url: Optional[str] = None
+    service_type: Optional[str] = None
+    security_config: Optional[Dict[str, Any]] = None
 
 
 class ProjectResponse(BaseModel):
@@ -41,4 +50,8 @@ class ProjectResponse(BaseModel):
     owner_id: str
     vercel_project_id: Optional[str] = None
     netlify_site_id: Optional[str] = None
+    service_name: Optional[str] = None
+    service_repository_url: Optional[str] = None
+    service_type: Optional[str] = None
+    security_config: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None

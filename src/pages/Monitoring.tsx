@@ -36,6 +36,8 @@ const sourceIcon = (source: AlertSource) => {
     case 'sentry':   return <span className={base + 'bg-violet-500/10 text-violet-400 border-violet-500/25'}>SN</span>;
     case 'vercel':   return <span className={base + 'bg-white/5 text-zinc-300 border-white/[0.06]'}>VC</span>;
     case 'netlify':  return <span className={base + 'bg-teal-500/10 text-teal-400 border-teal-500/25'}>NF</span>;
+    case 'datadog':  return <span className={base + 'bg-purple-500/10 text-purple-400 border-purple-500/25'}>DD</span>;
+    default:         return <span className={base + 'bg-white/5 text-zinc-400 border-white/[0.06]'}>{String(source).slice(0,2).toUpperCase()}</span>;
   }
 };
 
@@ -93,20 +95,20 @@ export const Monitoring: React.FC = () => {
     try {
       const data = await api.monitoring.getAlerts();
       if (Array.isArray(data)) {
-        const mapped = data.map((r: any) => ({
+        const mapped = data.map((r: Record<string, unknown>) => ({
           id: r.id,
-          projectId: r.project_id || r.projectId || '',
-          projectName: r.project_name || r.projectName || 'Service',
-          title: r.title || 'System Alert',
-          description: r.description || '',
-          severity: (r.severity || 'medium') as AlertSeverity,
-          status: (r.status || 'firing') as AlertStatus,
-          source: (r.source || 'grafana') as AlertSource,
-          firedAt: r.fired_at || r.firedAt || new Date().toISOString(),
-          resolvedAt: r.resolved_at || r.resolvedAt,
-          metricName: r.metric_name || r.metricName,
-          metricValue: r.metric_value || r.metricValue,
-          dashboardUrl: r.dashboard_url || r.dashboardUrl,
+          projectId: (r.project_id || r.projectId || '') as string,
+          projectName: (r.project_name || r.projectName || 'Service') as string,
+          title: (r.title || 'System Alert') as string,
+          description: (r.description || '') as string,
+          severity: ((r.severity || 'medium') as AlertSeverity),
+          status: ((r.status || 'firing') as AlertStatus),
+          source: ((r.source || 'grafana') as AlertSource),
+          firedAt: (r.fired_at || r.firedAt || new Date().toISOString()) as string,
+          resolvedAt: (r.resolved_at || r.resolvedAt) as string | undefined,
+          metricName: (r.metric_name || r.metricName) as string | undefined,
+          metricValue: (r.metric_value || r.metricValue) as string | undefined,
+          dashboardUrl: (r.dashboard_url || r.dashboardUrl) as string | undefined,
         }));
         setLiveAlerts(mapped as typeof contextAlerts);
       }
@@ -360,7 +362,7 @@ export const Monitoring: React.FC = () => {
                   placeholder="Search alerts..."
                   className="w-full bg-black/30 border border-white/[0.06] text-zinc-100 placeholder-zinc-600 focus:border-white/20 focus:outline-none rounded-md py-2 pl-9 pr-4 text-xs font-mono" />
               </div>
-              <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value as any)}
+              <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value as AlertSource | 'all')}
                 className="bg-black/30 border border-white/[0.06] text-zinc-300 focus:outline-none focus:border-white/20 rounded-md p-2 text-xs">
                 <option value="all">All Sources</option>
                 <option value="grafana">Grafana</option>
@@ -369,7 +371,7 @@ export const Monitoring: React.FC = () => {
                 <option value="vercel">Vercel</option>
                 <option value="netlify">Netlify</option>
               </select>
-              <select value={severityFilter} onChange={e => setSeverityFilter(e.target.value as any)}
+              <select value={severityFilter} onChange={e => setSeverityFilter(e.target.value as AlertSeverity | 'all')}
                 className="bg-black/30 border border-white/[0.06] text-zinc-300 focus:outline-none focus:border-white/20 rounded-md p-2 text-xs">
                 <option value="all">All Severities</option>
                 <option value="critical">Critical</option>
@@ -377,7 +379,7 @@ export const Monitoring: React.FC = () => {
                 <option value="medium">Medium</option>
                 <option value="low">Low</option>
               </select>
-              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)}
+              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as AlertStatus | 'all')}
                 className="bg-black/30 border border-white/[0.06] text-zinc-300 focus:outline-none focus:border-white/20 rounded-md p-2 text-xs">
                 <option value="all">All States</option>
                 <option value="firing">Firing</option>

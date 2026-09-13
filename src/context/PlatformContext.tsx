@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { api, isApiAvailable } from '../services/api';
+import { api, isApiAvailable, ensureValidSession } from '../services/api';
 import type { 
   Project, Deployment, Incident, RollbackOperation, Notification, AuditLog, User,
   DeploymentStatus, IncidentStatus, IncidentSeverity, ProviderType, EnvironmentType,
-  PluginInstallation, MonitoringAlert, SentryIssue, TeamMember, ProjectRole
+  PluginInstallation, MonitoringAlert, SentryIssue, TeamMember, ProjectRole, SecurityMetadata
 } from '../types/platform';
 import { 
   currentUser as initialUser,
@@ -21,7 +21,7 @@ import {
   initialTeamMembers
 } from '../data/seedData';
 
-type PageType = 
+export type PageType = 
   | 'dashboard'
   | 'projects'
   | 'create-project'
@@ -36,6 +36,8 @@ type PageType =
   | 'integrations'
   | 'plugin-config'
   | 'monitoring'
+  | 'automation'
+  | 'scheduled-tasks'
   | 'login';
 
 interface PlatformContextProps {
@@ -43,6 +45,7 @@ interface PlatformContextProps {
   projects: Project[];
   deployments: Deployment[];
   incidents: Incident[];
+  securityIncidents: Incident[];
   rollbackOperations: RollbackOperation[];
   notifications: Notification[];
   auditLogs: AuditLog[];
@@ -59,7 +62,7 @@ interface PlatformContextProps {
   navigateTo: (page: PageType, contextIds?: { projectId?: string; deploymentId?: string; incidentId?: string; pluginId?: string }) => void;
   
   // Auth Actions
-  loginUser: (email: string, provider?: string) => void;
+  loginUser: (email: string, provider?: string) => Promise<void>;
   logoutUser: () => void;
   updateUserConnections: (connections: { github?: string; vercel?: boolean; netlify?: boolean }) => void;
   
@@ -84,11 +87,20 @@ interface PlatformContextProps {
   // Incident Update
   updateIncident: (incidentId: string, updates: Partial<Incident>) => void;
 
+  // Security Triage
+  fetchSecurityIncidents: () => Promise<void>;
+  resolveSecurityIncident: (incidentId: string, notes?: string) => Promise<void>;
+  ignoreSecurityIncident: (incidentId: string, reason: string) => Promise<void>;
+
   // Team Management
   teamMembers: TeamMember[];
   addTeamMember: (member: Omit<TeamMember, 'id' | 'addedAt' | 'addedBy'>) => void;
   removeTeamMember: (memberId: string) => void;
   updateTeamMemberRole: (memberId: string, role: ProjectRole) => void;
+  acceptTeamInvite: (teamMemberId: string, notificationId: string, inviteToken?: string) => Promise<void>;
+  declineTeamInvite: (teamMemberId: string, notificationId: string, inviteToken?: string) => Promise<void>;
+  pendingInvites: TeamMember[];
+  refreshPendingInvites: () => Promise<void>;
 
   // Webhook Simulator
   triggerWebhookSimulation: (projectId: string, forceStatus?: DeploymentStatus) => void;
@@ -108,14 +120,15 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }
 
   // Helper: in API mode, always start empty (no seed data)
-  const isApiMode = Boolean(import.meta.env.VITE_API_URL);
+  // API mode includes both direct (VITE_API_URL) and proxy (VITE_USE_API) modes.
+  const isApiMode = Boolean(import.meta.env.VITE_API_URL || import.meta.env.VITE_USE_API);
   const hasJwt = Boolean(localStorage.getItem('idp_jwt'));
 
   // Load initial states from localStorage if available, else use seed data
   const [user, setUser] = useState<User | null>(() => {
     // Only restore user if we have a valid JWT token (API mode)
     // or if we're in demo mode (no VITE_API_URL)
-    const apiUrl = import.meta.env.VITE_API_URL;
+    const apiUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_USE_API;
     if (apiUrl) {
       // API mode — only restore if JWT exists and looks valid
       const jwt = localStorage.getItem('idp_jwt');
@@ -167,6 +180,13 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return saved ? JSON.parse(saved) : initialIncidents;
   });
 
+  const [securityIncidents, setSecurityIncidents] = useState<Incident[]>(() => {
+    const saved = localStorage.getItem('idp_security_incidents');
+    if (isApiMode) return saved ? JSON.parse(saved) : [];
+    if (saved) return JSON.parse(saved);
+    return initialIncidents.filter(i => i.source === 'security_triage');
+  });
+
   const [rollbackOperations, setRollbackOperations] = useState<RollbackOperation[]>(() => {
     const saved = localStorage.getItem('idp_rollbacks');
     if (isApiMode) return saved ? JSON.parse(saved) : [];
@@ -204,20 +224,37 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return saved ? JSON.parse(saved) : initialTeamMembers;
   });
 
+  // Pending invites for the currently logged-in user
+  const [pendingInvites, setPendingInvites] = useState<TeamMember[]>([]);
+
   // Navigation Context
   const [currentPage, setCurrentPage] = useState<PageType>(() => {
-    // Only restore page if we have a valid JWT (API mode) or saved user (demo mode)
+    // Determine if we have a valid session synchronously, without async work
     const jwt = localStorage.getItem('idp_jwt');
-    const apiUrl = import.meta.env.VITE_API_URL;
+    const apiUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_USE_API;
     const savedPage = localStorage.getItem('idp_page') as PageType;
+
+    // Validate the saved page is a real page, not 'login'
+    const isValidPage = (p: string | null): p is PageType =>
+      !!p && p !== 'login' && p !== 'null';
+
     if (apiUrl) {
-      // API mode — only restore page if JWT exists
-      if (jwt && savedPage && savedPage !== 'login') return savedPage;
+      // API mode: only restore page if JWT exists AND is not expired
+      if (jwt) {
+        try {
+          const payload = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+          if (!payload.exp || payload.exp * 1000 > Date.now()) {
+            return isValidPage(savedPage) ? savedPage : 'dashboard';
+          }
+        } catch { /* invalid jwt */ }
+      }
       return 'login';
     }
-    // Demo mode — restore if saved user exists
+    // Demo mode: restore if saved user exists
     const savedUser = localStorage.getItem('idp_user');
-    if (savedUser && savedUser !== 'null' && savedPage && savedPage !== 'login') return savedPage;
+    if (savedUser && savedUser !== 'null') {
+      return isValidPage(savedPage) ? savedPage : 'dashboard';
+    }
     return 'login';
   });
 
@@ -241,58 +278,53 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const wsRef = useRef<WebSocket | null>(null);
   const wsReconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wsReconnectDelayRef = useRef<number>(1000);
+  const projectsRef = useRef<Project[]>([]);
+  useEffect(() => { projectsRef.current = projects; }, [projects]);
 
-  // Sync to localStorage
+  // ── Batch localStorage writes — one effect, debounced ────────────────────
+  // Replaces 9 individual effects. Prevents 9x localStorage writes on every state change.
   useEffect(() => {
-    localStorage.setItem('idp_user', JSON.stringify(user));
-  }, [user]);
+    const t = setTimeout(() => {
+      localStorage.setItem('idp_user', JSON.stringify(user));
+      localStorage.setItem('idp_projects', JSON.stringify(projects));
+      localStorage.setItem('idp_deployments', JSON.stringify(deployments));
+      localStorage.setItem('idp_incidents', JSON.stringify(incidents));
+      localStorage.setItem('idp_security_incidents', JSON.stringify(securityIncidents));
+      localStorage.setItem('idp_rollbacks', JSON.stringify(rollbackOperations));
+      localStorage.setItem('idp_notifications', JSON.stringify(notifications));
+      localStorage.setItem('idp_audit', JSON.stringify(auditLogs));
+      localStorage.setItem('idp_plugins', JSON.stringify(pluginInstallations));
+      localStorage.setItem('idp_alerts', JSON.stringify(monitoringAlerts));
+      localStorage.setItem('idp_team', JSON.stringify(teamMembers));
+      localStorage.setItem('idp_page', currentPage);
+    }, 500); // debounce: only write after 500ms of no changes
+    return () => clearTimeout(t);
+  }, [user, projects, deployments, incidents, securityIncidents, rollbackOperations, notifications, auditLogs, pluginInstallations, monitoringAlerts, teamMembers, currentPage]);
 
-  useEffect(() => {
-    localStorage.setItem('idp_projects', JSON.stringify(projects));
-  }, [projects]);
-
-  useEffect(() => {
-    localStorage.setItem('idp_deployments', JSON.stringify(deployments));
-  }, [deployments]);
-
-  useEffect(() => {
-    localStorage.setItem('idp_incidents', JSON.stringify(incidents));
-  }, [incidents]);
-
-  useEffect(() => {
-    localStorage.setItem('idp_rollbacks', JSON.stringify(rollbackOperations));
-  }, [rollbackOperations]);
-
-  useEffect(() => {
-    localStorage.setItem('idp_notifications', JSON.stringify(notifications));
-  }, [notifications]);
-
-  useEffect(() => {
-    localStorage.setItem('idp_audit', JSON.stringify(auditLogs));
-  }, [auditLogs]);
-
-  useEffect(() => {
-    localStorage.setItem('idp_plugins', JSON.stringify(pluginInstallations));
-  }, [pluginInstallations]);
-
-  useEffect(() => {
-    localStorage.setItem('idp_alerts', JSON.stringify(monitoringAlerts));
-  }, [monitoringAlerts]);
-
-  useEffect(() => {
-    localStorage.setItem('idp_team', JSON.stringify(teamMembers));
-  }, [teamMembers]);
-
-  useEffect(() => {
-    localStorage.setItem('idp_page', currentPage);
-  }, [currentPage]);
-
-  // Fix 2: After restoring user from JWT on page load, navigate away from login
+  // After restoring user from JWT on page load, ensure we're not stuck on login page
   useEffect(() => {
     if (user && currentPage === 'login') {
       setCurrentPage('dashboard');
     }
-  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+    // If no user but page is not login, redirect to login — but only in API mode
+    // where we have definitive token-based auth. In demo mode, user can be null
+    // while still being on a "protected" page (just not authenticated).
+    if (!user && currentPage !== 'login' && isApiMode) {
+      // Small delay to allow async JWT check to complete before redirecting
+      const t = setTimeout(() => {
+        if (!localStorage.getItem('idp_jwt')) {
+          setCurrentPage('login');
+        }
+      }, 100);
+      return () => clearTimeout(t);
+    }
+  }, [user, currentPage, isApiMode]);
+
+  // Fix 3: On first render, silently refresh the JWT if it is near expiry so
+  // the 1-hour Supabase access token never dies mid-session.
+  useEffect(() => {
+    ensureValidSession();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Mappers: snake_case API rows → camelCase frontend types ───────────────
   const mapRemoteProject = (r: Record<string, unknown>): Project => ({
@@ -310,6 +342,10 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     vercelProjectId: r.vercel_project_id as string | undefined,
     netlifySiteId: r.netlify_site_id as string | undefined,
     webhookUrl: r.webhook_url as string | undefined,
+    serviceName: r.service_name as string | undefined,
+    serviceRepositoryUrl: r.service_repository_url as string | undefined,
+    serviceType: r.service_type as string | undefined,
+    securityConfig: r.security_config as Record<string, unknown> | undefined,
   });
 
   const mapRemoteDeployment = (r: Record<string, unknown>, projectName?: string): Deployment => ({
@@ -347,6 +383,11 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     feedbackIsReal: r.feedback_is_real as boolean | undefined,
     feedbackComment: r.feedback_comment as string | undefined,
     suggestedAction: r.suggested_action as string | undefined,
+    serviceId: r.service_id as string | undefined,
+    serviceRepositoryUrl: r.service_repository_url as string | undefined,
+    visibilityScope: r.visibility_scope as string | undefined,
+    source: r.source as string | undefined,
+    securityMetadata: r.security_metadata as SecurityMetadata | undefined,
     comments: [],
     timeline: [],
   });
@@ -387,6 +428,20 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   };
 
+  const mapRemoteNotification = (r: Record<string, unknown>): Notification => ({
+    id: r.id as string,
+    title: (r.title as string) || '',
+    message: (r.message as string) || '',
+    type: ((r.type as string) || 'info') as Notification['type'],
+    projectId: r.project_id as string | undefined,
+    incidentId: r.incident_id as string | undefined,
+    deploymentId: r.deployment_id as string | undefined,
+    teamMemberId: r.team_member_id as string | undefined,
+    inviteToken: (r.invite_token as string) || undefined,
+    read: Boolean(r.read),
+    createdAt: (r.created_at as string) || new Date().toISOString(),
+  });
+
   const mapRemoteAuditLog = (r: Record<string, unknown>): AuditLog => ({
     id: r.id as string,
     userId: (r.user_id as string) || '',
@@ -397,11 +452,25 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     createdAt: (r.created_at as string) || new Date().toISOString(),
   });
 
+  const mapRemoteTeamMember = (r: Record<string, unknown>): TeamMember => ({
+    id: r.id as string,
+    userId: (r.user_id as string) || '',
+    name: (r.name as string) || '',
+    email: (r.email as string) || '',
+    role: ((r.role as string) || 'viewer') as ProjectRole,
+    projectId: (r.project_id as string) || '',
+    addedAt: (r.created_at as string) || new Date().toISOString(),
+    addedBy: (r.added_by as string) || '',
+    status: (r.status as TeamMember['status']) || 'accepted',
+    inviteToken: (r.invite_token as string) || undefined,
+    inviteExpiresAt: (r.invite_expires_at as string) || undefined,
+  });
+
   // Refresh live data from API
   const refreshData = async () => {
     if (!isApiAvailable() || !user) return;
     try {
-      const [remoteProjects, remoteIncidents, remoteNotifications, remoteDeployments, remoteAlerts, remotePlugins, remoteAudit] = await Promise.all([
+      const [remoteProjects, remoteIncidents, remoteNotifications, remoteDeployments, remoteAlerts, remotePlugins, remoteAudit, remoteTeam, remoteSecurity] = await Promise.all([
         api.projects.list().catch(() => null),
         api.incidents.list().catch(() => null),
         api.notifications.list().catch(() => null),
@@ -409,6 +478,8 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         api.monitoring.getAlerts().catch(() => null),
         api.plugins.list().catch(() => null),
         api.audit.list(50).catch(() => null),
+        api.team.list().catch(() => null),
+        api.security.list().catch(() => null),
       ]);
 
       let projectMap = new Map<string, string>();
@@ -431,12 +502,50 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setIncidents(incs);
       }
 
-      if (remoteNotifications) setNotifications(remoteNotifications as Notification[]);
-      if (remoteAlerts) setMonitoringAlerts((remoteAlerts as Record<string, unknown>[]).map(mapRemoteAlert));
+      if (remoteSecurity) {
+        const secIncs = ((remoteSecurity as { incidents: Record<string, unknown>[] }).incidents || []).map(r => ({
+          ...mapRemoteIncident(r),
+          projectName: projectMap.get(r.project_id as string) || '',
+        }));
+        setSecurityIncidents(secIncs);
+      }
+
+      if (remoteNotifications) setNotifications((remoteNotifications as Record<string, unknown>[]).map(mapRemoteNotification));
+      if (remoteAlerts) setMonitoringAlerts((remoteAlerts as Record<string, unknown>[]).map(r => ({
+        ...mapRemoteAlert(r),
+        projectName: projectMap.get(r.project_id as string) || (r.project_name as string) || '',
+      })));
       if (remotePlugins) setPluginInstallations((remotePlugins as Record<string, unknown>[]).map(mapRemotePlugin));
       if (remoteAudit) setAuditLogs((remoteAudit as Record<string, unknown>[]).map(mapRemoteAuditLog));
+      if (remoteTeam) setTeamMembers((remoteTeam as Record<string, unknown>[]).map(mapRemoteTeamMember));
     } catch (err) {
       console.warn('[PlatformContext] refreshData error:', err);
+    }
+  };
+
+  /** Fetch pending invites for the current user from the backend (API mode only). */
+  const refreshPendingInvites = async () => {
+    if (!isApiAvailable() || !user) return;
+    try {
+      const invites = await api.team.getPendingInvites();
+      // Map backend shape to TeamMember
+      const mapped: TeamMember[] = (invites as Record<string, unknown>[]).map(r => ({
+        id: r.id as string,
+        userId: (r.user_id as string) || '',
+        name: (r.name as string) || (r.email as string) || '',
+        email: (r.email as string) || '',
+        role: (r.role as ProjectRole) || 'developer',
+        projectId: (r.project_id as string) || '',
+        projectName: (r.project_name as string) || '',
+        status: 'invited' as const,
+        addedAt: (r.created_at as string) || (r.added_at as string) || new Date().toISOString(),
+        addedBy: '',
+        inviteToken: (r.invite_token as string) || '',
+        inviteExpiresAt: (r.invite_expires_at as string) || '',
+      }));
+      setPendingInvites(mapped);
+    } catch (err) {
+      console.warn('[PlatformContext] refreshPendingInvites error:', err);
     }
   };
 
@@ -454,15 +563,48 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     if (!isApiAvailable() || !user) return;
     // Clear any stale localStorage before loading from API
-    ['idp_projects','idp_incidents','idp_notifications','idp_deployments','idp_plugins','idp_alerts','idp_audit'].forEach(k => localStorage.removeItem(k));
-    refreshData();
+    ['idp_projects','idp_incidents','idp_notifications','idp_deployments','idp_plugins','idp_alerts','idp_audit','idp_team'].forEach(k => localStorage.removeItem(k));
+    // Defer initial load by one tick so the dashboard shell renders first,
+    // giving the user immediate visual feedback before data arrives.
+    const initialLoad = setTimeout(() => {
+      refreshData();
+      refreshPendingInvites(); // load invite banner immediately after login
+    }, 0);
 
-    const interval = setInterval(refreshData, 10000);
-    return () => clearInterval(interval);
+    // Poll every 30s (was 10s — 3x less load on the backend)
+    const interval = setInterval(refreshData, 30_000);
+    // Poll pending invites every 60s so a new invite from another admin appears promptly
+    const inviteInterval = setInterval(refreshPendingInvites, 60_000);
+    return () => {
+      clearTimeout(initialLoad);
+      clearInterval(interval);
+      clearInterval(inviteInterval);
+    };
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-check pending invites whenever the tab regains focus — covers invites
+  // that arrived while the WebSocket wasn't connected or the tab was hidden,
+  // so the banner never stays stale.
+  useEffect(() => {
+    const onVisible = () => {
+      if (!document.hidden) refreshPendingInvites();
+    };
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Navigation Helper
   const navigateTo = (page: PageType, contextIds?: { projectId?: string; deploymentId?: string; incidentId?: string; pluginId?: string }) => {
+    // Route guard — bounce to login if no user and trying to access protected page
+    if (!user && page !== 'login') {
+      setCurrentPage('login');
+      return;
+    }
+
     if (contextIds?.projectId) {
       setActiveProjectId(contextIds.projectId);
       localStorage.setItem('idp_active_project', contextIds.projectId);
@@ -480,12 +622,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       localStorage.setItem('idp_active_plugin', contextIds.pluginId);
     }
     
-    // Auto-login check
-    if (!user && page !== 'login') {
-      setCurrentPage('login');
-    } else {
-      setCurrentPage(page);
-    }
+    setCurrentPage(page);
   };
 
   // WebSocket connection helper with exponential backoff
@@ -493,35 +630,98 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const wsUrl = import.meta.env.VITE_WS_URL;
     if (!wsUrl) return;
 
+    // Close any existing socket first so a re-login never leaves two live
+    // connections open (also prevents stale onclose reconnecting the old user).
+    if (wsRef.current && wsRef.current.readyState < WebSocket.CLOSING) {
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
     // Clear any pending reconnect timer
     if (wsReconnectTimeoutRef.current) {
       clearTimeout(wsReconnectTimeoutRef.current);
       wsReconnectTimeoutRef.current = null;
     }
 
-    const ws = new WebSocket(`${wsUrl}/ws/${userId}`);
+    const ws = new WebSocket(`${wsUrl}/ws/${userId}?token=${encodeURIComponent(localStorage.getItem('idp_jwt') || '')}`);
     wsRef.current = ws;
 
     ws.onmessage = (event) => {
       try {
-        const msg = JSON.parse(event.data) as { type: string; data: Record<string, unknown> };
-        switch (msg.type) {
-          case 'deployment.status_changed':
+        const msg = JSON.parse(event.data) as { type?: string; event_type?: string; data: Record<string, unknown> };
+        const eventType = (msg.event_type || msg.type) ?? '';
+        switch (eventType) {
+          case 'deployment.status_changed': {
+            const d = msg.data;
             setDeployments(prev =>
-              prev.map(d => d.id === msg.data.id ? { ...d, ...(msg.data as Partial<Deployment>) } : d)
+              prev.map(existing => existing.id === d.id
+                ? { ...existing, ...mapRemoteDeployment(d), projectName: existing.projectName }
+                : existing)
             );
             break;
-          case 'incident.created':
-            setIncidents(prev => [msg.data as Incident, ...prev]);
+          }
+          case 'incident.created': {
+            const inc = mapRemoteIncident(msg.data);
+            const proj = projectsRef.current.find(p => p.id === inc.projectId);
+            setIncidents(prev => [{ ...inc, projectName: proj?.name || '' }, ...prev]);
+            if (inc.source === 'security_triage' || inc.provider === 'trivy') {
+              setSecurityIncidents(prev => [{ ...inc, projectName: proj?.name || '' }, ...prev]);
+            }
             break;
-          case 'rollback.progress':
+          }
+          case 'incident.changed': {
+            const data = msg.data?.incident as Record<string, unknown> | undefined;
+            if (!data) break;
+            const inc = mapRemoteIncident(data);
+            // Broadcast rows don't carry projectName/comments/timeline — preserve
+            // the locally-rendered values when merging the state change.
+            const applyChange = (prev: Incident[]) => prev.map(existing =>
+              existing.id === inc.id
+                ? {
+                    ...existing,
+                    ...inc,
+                    projectName: inc.projectName || existing.projectName,
+                    comments: existing.comments,
+                    timeline: existing.timeline,
+                  }
+                : existing
+            );
+            setIncidents(applyChange);
+            if (inc.source === 'security_triage' || inc.provider === 'trivy') {
+              setSecurityIncidents(applyChange);
+            }
+            break;
+          }
+          case 'rollback.progress': {
+            const rb = msg.data;
             setRollbackOperations(prev =>
-              prev.map(r => r.id === msg.data.id ? { ...r, ...(msg.data as Partial<RollbackOperation>) } : r)
+              prev.map(r => r.id === rb.id
+                ? { ...r, status: (rb.status as RollbackOperation['status']) || r.status, completedAt: (rb.completed_at as string) || r.completedAt }
+                : r)
             );
             break;
-          case 'notification.new':
-            setNotifications(prev => [msg.data as Notification, ...prev]);
+          }
+          case 'notification.new': {
+            const nd = msg.data as Record<string, unknown>;
+            setNotifications(prev => [mapRemoteNotification(nd), ...prev]);
+            // Instant invites: a team_invite notification means a new pending
+            // invite exists for us — fetch it immediately so the banner shows
+            // without waiting for the polling interval.
+            if (nd.type === 'team_invite') {
+              void refreshPendingInvites();
+            }
             break;
+          }
+          case 'team.members.changed': {
+            // A teammate accepted/declined (either via this screen or another
+            // connected device). Re-pull team + pending invites + projects so
+            // the new member appears / the invite banner disappears instantly,
+            // exactly like a real-time Slack invite.
+            void refreshData();
+            void refreshPendingInvites();
+            break;
+          }
           default:
             break;
         }
@@ -532,12 +732,14 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     ws.onclose = () => {
       wsRef.current = null;
-      // Exponential backoff: 1s → 2s → 4s → 8s → 16s → 30s cap
-      const delay = Math.min(wsReconnectDelayRef.current, 30000);
+      // Exponential backoff with jitter: prevents thundering herd on reconnect
+      const base = Math.min(wsReconnectDelayRef.current, 30000);
+      // Jitter: multiply by 0.5–1.0 random factor so clients don't all reconnect simultaneously
+      const jittered = base * (0.5 + Math.random() * 0.5);
       wsReconnectTimeoutRef.current = setTimeout(() => {
-        wsReconnectDelayRef.current = Math.min(delay * 2, 30000);
+        wsReconnectDelayRef.current = Math.min(base * 2, 30000);
         connectWebSocket(userId);
-      }, delay);
+      }, jittered);
     };
 
     ws.onerror = () => {
@@ -566,15 +768,14 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         // ── GitHub OAuth callback — token + user info packed into email param ──
         if (isGitHubOAuth) {
-          // Format: __oauth__<jwt>__<email>__<name>__<avatar>__<username>__<ghToken>
+          // Format: __oauth__<jwt>__<email>__<name>__<avatar>__<username>__
           const parts = email.split('__');
-          // parts: ['', 'oauth', jwt, email, name, avatar, username, ghToken]
+          // parts: ['', 'oauth', jwt, email, name, avatar, username, '']
           const jwt = parts[2] || '';
           const ghEmail = parts[3] || '';
           const ghName = parts[4] || 'Developer';
           const ghAvatar = parts[5] || '';
           const ghUsername = parts[6] || '';
-          const ghToken = parts[7] || '';
 
           if (!jwt) {
             alert('GitHub OAuth failed — no token received. Please try again.');
@@ -595,37 +796,6 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           localStorage.setItem('idp_jwt', jwt);
           setUser(oauthUser);
 
-          // Fetch repos and set up GitHub plugin in background
-          if (ghToken) {
-            try {
-              const setup = await api.auth.githubSetup(ghToken);
-              if (setup.repos && setup.repos.length > 0) {
-                const existingNames = new Set((projects as Array<{repoName: string}>).map(p => p.repoName));
-                const newProjects = setup.repos
-                  .filter(r => !existingNames.has(r.name))
-                  .slice(0, 20)
-                  .map(r => ({
-                    id: 'gh_' + r.id,
-                    name: r.name,
-                    description: r.description || `GitHub repo: ${r.full_name}`,
-                    repoOwner: r.owner,
-                    repoName: r.name,
-                    branch: r.default_branch,
-                    provider: 'vercel' as const,
-                    environment: 'production' as const,
-                    status: 'queued' as const,
-                    createdAt: r.pushed_at || new Date().toISOString(),
-                    ownerId: oauthUser.id,
-                  }));
-                if (newProjects.length > 0) {
-                  setProjects(prev => [...newProjects, ...prev]);
-                }
-              }
-            } catch {
-              // Setup is best-effort — login still succeeds
-            }
-          }
-
           setAuditLogs(prev => [{
             id: 'a_' + Math.random().toString(36).substr(2, 9),
             userId: oauthUser.id, userName: oauthUser.name,
@@ -634,7 +804,9 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             createdAt: new Date().toISOString()
           }, ...prev]);
           connectWebSocket(oauthUser.id);
-          navigateTo('dashboard');
+          setCurrentPage('dashboard');
+          // Load API data in background — repos will appear after refreshData()
+          setTimeout(() => refreshData(), 0);
           return;
         }
 
@@ -694,14 +866,15 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             createdAt: new Date().toISOString()
           }, ...prev]);
           connectWebSocket(apiUser.id);
-          navigateTo('dashboard');
+          setCurrentPage('dashboard');
           return;
         }
 
         // Email + password login
-        const result = await api.auth.login(email, passwordOrProvider || '') as { access_token: string };
+        const result = await api.auth.login(email, passwordOrProvider || '');
         const token = result.access_token;
         localStorage.setItem('idp_jwt', token);
+        if (result.refresh_token) localStorage.setItem('idp_refresh_token', result.refresh_token);
 
         const payloadB64 = token.split('.')[1];
         const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
@@ -732,7 +905,8 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           createdAt: new Date().toISOString()
         }, ...prev]);
         connectWebSocket(apiUser.id);
-        navigateTo('dashboard');
+        // Use setCurrentPage directly — navigateTo checks user which isn't set yet (React batching)
+        setCurrentPage('dashboard');
         return;
 
       } catch (err: unknown) {
@@ -772,7 +946,8 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       createdAt: new Date().toISOString()
     };
     setAuditLogs(prev => [newAudit, ...prev]);
-    navigateTo('dashboard');
+    // Use setCurrentPage directly — navigateTo checks user which isn't set yet (React batching)
+    setCurrentPage('dashboard');
   };
 
   const logoutUser = () => {
@@ -789,6 +964,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Clear JWT
     localStorage.removeItem('idp_jwt');
+    localStorage.removeItem('idp_refresh_token');
 
     setUser(null);
     setCurrentPage('login');
@@ -820,6 +996,24 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // Core IDP Actions
+  const updateProject = async (id: string, updates: Partial<Project>) => {
+    // Optimistic
+    setProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+    if (isApiAvailable()) {
+      try {
+        const payload: Record<string, unknown> = {};
+        if (updates.name !== undefined) payload.name = updates.name;
+        if (updates.description !== undefined) payload.description = updates.description;
+        if (updates.branch !== undefined) payload.branch = updates.branch;
+        await api.projects.update(id, payload);
+      } catch (err) {
+        console.error('[updateProject] API failed:', err);
+        // revert
+        refreshData();
+      }
+    }
+  };
+
   const createProject = async (projectData: Omit<Project, 'id' | 'createdAt' | 'ownerId' | 'status' | 'webhookUrl' | 'webhookSecret'>) => {
     if (!user) return;
     const projectId = 'p_' + Math.random().toString(36).substr(2, 9);
@@ -850,7 +1044,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           id: (apiProject.id as string) || projectId,
         };
         setProjects(prev => [...prev, merged]);
-        simulateInitialBuildPipeline(merged);
+        // In API mode: do NOT simulate build pipeline. Real deployments come via webhooks or sync.
         const newAudit: AuditLog = {
           id: 'a_' + Math.random().toString(36).substr(2, 9),
           userId: user.id,
@@ -864,8 +1058,11 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setAuditLogs(prev => [newAudit, ...prev]);
         navigateTo('projects');
         return;
-      } catch {
-        // fall through to mock
+      } catch (err) {
+        // In API mode a failed server create must not silently fall back to demo data
+        console.error('[createProject] API failed:', err);
+        alert('Failed to create project on the server. Please try again.');
+        return;
       }
     }
 
@@ -1204,8 +1401,40 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, 5000);
   };
 
-  const addComment = (incidentId: string, content: string) => {
+  const addComment = async (incidentId: string, content: string) => {
     if (!user) return;
+
+    if (isApiAvailable()) {
+      try {
+        const result = await api.incidents.comment(incidentId, content);
+        const newComment = {
+          id: (result as Record<string, unknown>).id as string || 'c_' + Math.random().toString(36).substr(2, 9),
+          userId: user.id,
+          userName: user.name,
+          userAvatar: user.avatarUrl,
+          content,
+          createdAt: (result as Record<string, unknown>).created_at as string || new Date().toISOString(),
+        };
+        setIncidents(prev => prev.map(inc => {
+          if (inc.id === incidentId) {
+            return {
+              ...inc,
+              comments: [...inc.comments, newComment],
+              timeline: [
+                ...inc.timeline,
+                { event: `Comment added by ${user.name}`, timestamp: new Date().toISOString(), type: 'comment' }
+              ]
+            };
+          }
+          return inc;
+        }));
+        return;
+      } catch (err) {
+        console.error('[addComment] API failed:', err);
+      }
+    }
+
+    // Demo / fallback mode
     const newComment = {
       id: 'c_' + Math.random().toString(36).substr(2, 9),
       userId: user.id,
@@ -1230,9 +1459,48 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }));
   };
 
-  const resolveIncident = (incidentId: string) => {
+  const resolveIncident = async (incidentId: string) => {
     if (!user) return;
-    
+
+    const incident = incidents.find(i => i.id === incidentId);
+
+    if (isApiAvailable()) {
+      try {
+        await api.incidents.resolve(incidentId);
+        setIncidents(prev => prev.map(inc => {
+          if (inc.id === incidentId) {
+            return {
+              ...inc,
+              status: 'resolved',
+              resolvedAt: new Date().toISOString(),
+              timeline: [
+                ...inc.timeline,
+                { event: `Incident marked as RESOLVED by ${user.name}`, timestamp: new Date().toISOString(), type: 'status_change' }
+              ]
+            };
+          }
+          return inc;
+        }));
+        if (incident) {
+          setProjects(prev => prev.map(p => p.id === incident.projectId ? { ...p, status: 'ready' } : p));
+          setAuditLogs(prev => [{
+            id: 'a_' + Math.random().toString(36).substr(2, 9),
+            userId: user.id,
+            userName: user.name,
+            action: 'INCIDENT_RESOLVE',
+            projectId: incident.projectId,
+            projectName: incident.projectName,
+            details: `Manually marked incident "${incident.title}" as resolved.`,
+            createdAt: new Date().toISOString()
+          }, ...prev]);
+        }
+        return;
+      } catch (err) {
+        console.error('[resolveIncident] API failed:', err);
+      }
+    }
+
+    // Demo / fallback mode
     setIncidents(prev => prev.map(inc => {
       if (inc.id === incidentId) {
         return {
@@ -1248,13 +1516,9 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return inc;
     }));
 
-    const incident = incidents.find(i => i.id === incidentId);
     if (incident) {
-      // Set project status back to ready
       setProjects(prev => prev.map(p => p.id === incident.projectId ? { ...p, status: 'ready' } : p));
-
-      // Audit Log
-      const newAudit: AuditLog = {
+      setAuditLogs(prev => [{
         id: 'a_' + Math.random().toString(36).substr(2, 9),
         userId: user.id,
         userName: user.name,
@@ -1263,17 +1527,112 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         projectName: incident.projectName,
         details: `Manually marked incident "${incident.title}" as resolved.`,
         createdAt: new Date().toISOString()
-      };
-      setAuditLogs(prev => [newAudit, ...prev]);
+      }, ...prev]);
     }
   };
 
-  const markNotificationAsRead = (notificationId: string) => {
-    setNotifications(prev => prev.map(n => n.id === notificationId ? { ...n, read: true } : n));
+  const fetchSecurityIncidents = async () => {
+    if (!isApiAvailable() || !user) return;
+    try {
+      const res = await api.security.list();
+      const projectMap = new Map(projects.map(p => [p.id, p.name]));
+      const mapped = (res.incidents as Record<string, unknown>[]).map(r => ({
+        ...mapRemoteIncident(r),
+        projectName: projectMap.get(r.project_id as string) || '',
+      }));
+      setSecurityIncidents(mapped);
+    } catch (err) {
+      console.warn('[PlatformContext] fetchSecurityIncidents error:', err);
+    }
   };
 
-  const markAllNotificationsRead = () => {
+  const resolveSecurityIncident = async (incidentId: string, notes?: string) => {
+    if (!user) return;
+    if (isApiAvailable()) {
+      try {
+        const res = await api.security.resolve(incidentId, notes);
+        const updated = mapRemoteIncident(res.incident as Record<string, unknown>);
+        setSecurityIncidents(prev => prev.map(i =>
+          i.id === incidentId
+            ? { ...i, ...updated, projectName: i.projectName, status: 'resolved' as IncidentStatus, resolvedAt: updated.resolvedAt }
+            : i
+        ));
+        setAuditLogs(prev => [{
+          id: 'a_' + Math.random().toString(36).substr(2, 9),
+          userId: user.id,
+          userName: user.name,
+          action: 'SECURITY_INCIDENT_RESOLVE',
+          details: `Resolved security incident ${incidentId}${notes ? ` — ${notes}` : ''}.`,
+          createdAt: new Date().toISOString(),
+        }, ...prev]);
+        return;
+      } catch (err) {
+        console.error('[resolveSecurityIncident] API failed:', err);
+        return;
+      }
+    }
+    setSecurityIncidents(prev => prev.map(i =>
+      i.id === incidentId ? { ...i, status: 'resolved', resolvedAt: new Date().toISOString() } : i
+    ));
+  };
+
+  const ignoreSecurityIncident = async (incidentId: string, reason: string) => {
+    if (!user) return;
+    if (isApiAvailable()) {
+      try {
+        const res = await api.security.ignore(incidentId, reason);
+        const updated = mapRemoteIncident(res.incident as Record<string, unknown>);
+        setSecurityIncidents(prev => prev.map(i =>
+          i.id === incidentId
+            ? { ...i, ...updated, projectName: i.projectName, status: 'ignored' as IncidentStatus, ignoredReason: reason }
+            : i
+        ));
+        setAuditLogs(prev => [{
+          id: 'a_' + Math.random().toString(36).substr(2, 9),
+          userId: user.id,
+          userName: user.name,
+          action: 'SECURITY_INCIDENT_IGNORE',
+          details: `Ignored security incident ${incidentId} (${reason}).`,
+          createdAt: new Date().toISOString(),
+        }, ...prev]);
+        return;
+      } catch (err) {
+        console.error('[ignoreSecurityIncident] API failed:', err);
+        return;
+      }
+    }
+    setSecurityIncidents(prev => prev.map(i =>
+      i.id === incidentId ? { ...i, status: 'ignored', ignoredReason: reason } : i
+    ));
+  };
+
+  const markNotificationAsRead = async (notificationId: string) => {
+    // Optimistic UI
+    setNotifications(prev => prev.map(n => n.id === notificationId ? { ...n, read: true } : n));
+
+    if (isApiAvailable()) {
+      try {
+        await api.notifications.markRead(notificationId);
+      } catch (err) {
+        console.error('[markNotificationAsRead] API failed:', err);
+        // Revert on failure
+        setNotifications(prev => prev.map(n => n.id === notificationId ? { ...n, read: false } : n));
+      }
+    }
+  };
+
+  const markAllNotificationsRead = async () => {
+    // Optimistic UI
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+
+    if (isApiAvailable()) {
+      try {
+        await api.notifications.markAllRead();
+      } catch (err) {
+        console.error('[markAllNotificationsRead] API failed:', err);
+        refreshData();
+      }
+    }
   };
 
   // Webhook Simulator (Crucial for live demonstrations!)
@@ -1465,32 +1824,97 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, 5000);
   };
 
-  const updateIncident = (incidentId: string, updates: Partial<Incident>) => {
+  const updateIncident = async (incidentId: string, updates: Partial<Incident>) => {
+    // Optimistic UI
     setIncidents(prev => prev.map(i => i.id === incidentId ? { ...i, ...updates } : i));
 
+    if (isApiAvailable()) {
+      try {
+        const apiPayload: Record<string, unknown> = {};
+        if (updates.status !== undefined) apiPayload.status = updates.status;
+        if (updates.severity !== undefined) apiPayload.severity = updates.severity;
+        if (updates.assignedTo !== undefined) apiPayload.assigned_to = updates.assignedTo;
+        if (updates.description !== undefined) apiPayload.description = updates.description;
+        if (updates.suggestedAction !== undefined) apiPayload.suggested_action = updates.suggestedAction;
+        await api.incidents.update(incidentId, apiPayload);
+      } catch (err) {
+        console.error('[updateIncident] API failed:', err);
+        refreshData();
+      }
+    }
+
     if (user) {
-      const newAudit: AuditLog = {
+      setAuditLogs(prev => [{
         id: 'a_' + Math.random().toString(36).substr(2, 9),
         userId: user.id,
         userName: user.name,
         action: 'INCIDENT_UPDATE',
         details: `Updated incident ${incidentId} with fields: ${Object.keys(updates).join(', ')}.`,
         createdAt: new Date().toISOString()
-      };
-      setAuditLogs(prev => [newAudit, ...prev]);
+      }, ...prev]);
     }
   };
 
   // Team Management Actions
-  const addTeamMember = (member: Omit<TeamMember, 'id' | 'addedAt' | 'addedBy'>) => {
+  const addTeamMember = async (member: Omit<TeamMember, 'id' | 'addedAt' | 'addedBy'>) => {
     if (!user) return;
+
+    if (isApiAvailable()) {
+      try {
+        const remote = await api.team.add({
+          project_id: member.projectId,
+          email: member.email,
+          role: member.role,
+          name: member.name,
+        });
+        const mapped = mapRemoteTeamMember(remote as Record<string, unknown>);
+        setTeamMembers(prev => {
+          const next = prev.filter(tm => tm.email !== member.email || tm.projectId !== member.projectId);
+          return [...next, mapped];
+        });
+
+        // Create invite notification so the invited user sees it in their inbox
+        const project = projects.find(p => p.id === member.projectId);
+        const inviteNotification: Notification = {
+          id: 'n_' + Math.random().toString(36).substr(2, 9),
+          title: 'Team Invitation',
+          message: `${user.name} invited you to join "${project?.name || 'a project'}" as ${member.role}.`,
+          type: 'team_invite',
+          projectId: member.projectId,
+          teamMemberId: mapped.id,
+          read: false,
+          createdAt: new Date().toISOString(),
+        };
+        setNotifications(prev => [inviteNotification, ...prev]);
+      } catch (err) {
+        console.error('[Team] addTeamMember API error:', err);
+        throw err;
+      }
+      return;
+    }
+
     const newMember: TeamMember = {
       ...member,
       id: 'tm_' + Math.random().toString(36).substr(2, 9),
       addedAt: new Date().toISOString(),
       addedBy: user.id,
+      status: 'invited',
     };
     setTeamMembers(prev => [...prev, newMember]);
+
+    // Create invite notification for the invited user
+    const project = projects.find(p => p.id === member.projectId);
+    const inviteNotification: Notification = {
+      id: 'n_' + Math.random().toString(36).substr(2, 9),
+      title: 'Team Invitation',
+      message: `${user.name} invited you to join "${project?.name || 'a project'}" as ${member.role}.`,
+      type: 'team_invite',
+      projectId: member.projectId,
+      teamMemberId: newMember.id,
+      read: false,
+      createdAt: new Date().toISOString(),
+    };
+    setNotifications(prev => [inviteNotification, ...prev]);
 
     const newAudit: AuditLog = {
       id: 'a_' + Math.random().toString(36).substr(2, 9),
@@ -1503,7 +1927,78 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setAuditLogs(prev => [newAudit, ...prev]);
   };
 
-  const removeTeamMember = (memberId: string) => {
+  const acceptTeamInvite = async (teamMemberId: string, notificationId: string, inviteToken?: string) => {
+    if (isApiAvailable()) {
+      // The token is required by the backend. Usually it comes from the
+      // InviteBanner (pendingInvites) but the Notifications page may only know
+      // teamMemberId — fall back to the cached pending-invite token.
+      const token = inviteToken || pendingInvites.find(i => i.id === teamMemberId)?.inviteToken;
+      if (!token) {
+        const err = new Error('Missing invite token. Refresh the page and try again.');
+        console.error('[Team] acceptTeamInvite error:', err);
+        throw err;
+      }
+      try {
+        await api.team.acceptInvite(teamMemberId, token);
+      } catch (err) {
+        console.error('[Team] acceptTeamInvite API error:', err);
+        throw err;
+      }
+      // Refresh immediately so the shared project, the updated teamMembers list
+      // and the marked-read notification are all visible right away (not after
+      // the next 30s/60s poll) and the invite banner disappears.
+      await Promise.all([refreshData(), refreshPendingInvites()]);
+    }
+    // Always update local state (demo mode + optimistic update in API mode)
+    setTeamMembers(prev =>
+      prev.map(tm => tm.id === teamMemberId ? { ...tm, status: 'accepted' as const } : tm)
+    );
+    setPendingInvites(prev => prev.filter(tm => tm.id !== teamMemberId));
+    if (notificationId) {
+      setNotifications(prev => prev.map(n => n.id === notificationId ? { ...n, read: true } : n));
+    }
+    // Also clear every invite notification pointing at this team member so the
+    // bell doesn't keep an Accept/Decline button for an already-handled invite.
+    setNotifications(prev => prev.map(n => n.teamMemberId === teamMemberId ? { ...n, read: true } : n));
+  };
+
+  const declineTeamInvite = async (teamMemberId: string, notificationId: string, inviteToken?: string) => {
+    if (isApiAvailable()) {
+      const token = inviteToken || pendingInvites.find(i => i.id === teamMemberId)?.inviteToken;
+      if (!token) {
+        const err = new Error('Missing invite token. Refresh the page and try again.');
+        console.error('[Team] declineTeamInvite error:', err);
+        throw err;
+      }
+      try {
+        await api.team.declineInvite(teamMemberId, token);
+      } catch (err) {
+        console.error('[Team] declineTeamInvite API error:', err);
+        throw err;
+      }
+      await Promise.all([refreshData(), refreshPendingInvites()]);
+    }
+    setTeamMembers(prev =>
+      prev.map(tm => tm.id === teamMemberId ? { ...tm, status: 'declined' as const } : tm)
+    );
+    setPendingInvites(prev => prev.filter(tm => tm.id !== teamMemberId));
+    if (notificationId) {
+      setNotifications(prev => prev.map(n => n.id === notificationId ? { ...n, read: true } : n));
+    }
+    // Also clear every invite notification pointing at this team member so the
+    // bell doesn't keep an Accept/Decline button for an already-handled invite.
+    setNotifications(prev => prev.map(n => n.teamMemberId === teamMemberId ? { ...n, read: true } : n));
+  };
+
+  const removeTeamMember = async (memberId: string) => {
+    if (isApiAvailable()) {
+      try {
+        await api.team.remove(memberId);
+      } catch (err) {
+        console.error('[Team] removeTeamMember API error:', err);
+        throw err;
+      }
+    }
     if (!user) return;
     const member = teamMembers.find(tm => tm.id === memberId);
     setTeamMembers(prev => prev.filter(tm => tm.id !== memberId));
@@ -1521,7 +2016,15 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  const updateTeamMemberRole = (memberId: string, role: ProjectRole) => {
+  const updateTeamMemberRole = async (memberId: string, role: ProjectRole) => {
+    if (isApiAvailable()) {
+      try {
+        await api.team.updateRole(memberId, role);
+      } catch (err) {
+        console.error('[Team] updateTeamMemberRole API error:', err);
+        throw err;
+      }
+    }
     if (!user) return;
     const member = teamMembers.find(tm => tm.id === memberId);
     setTeamMembers(prev => prev.map(tm => tm.id === memberId ? { ...tm, role } : tm));
@@ -1566,9 +2069,9 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         category: def.category,
         status: 'disconnected',
       }).then(res => {
-        if (res && (res as any).id) {
-          const rec = res as any;
-          setPluginInstallations(prev => prev.map(p => p.id === tempId ? { ...p, id: rec.id } : p));
+        if (res && (res as Record<string, unknown>).id) {
+          const rec = res as Record<string, unknown>;
+          setPluginInstallations(prev => prev.map(p => p.id === tempId ? { ...p, id: rec.id as string } : p));
         }
       }).catch(err => console.error('[plugins] Create failed:', err));
     }
@@ -1648,7 +2151,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         if (Object.keys(payload).length > 0) {
           const updated = await api.plugins.update(installationId, payload);
-          if (updated && (updated as any).id) {
+          if (updated && (updated as Record<string, unknown>).id) {
             const serverPlugin = updated as Record<string, unknown>;
             setPluginInstallations(prev => prev.map(p => (p.id === installationId || p.id === serverPlugin.id) ? {
               ...p,
@@ -1695,6 +2198,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       projects,
       deployments,
       incidents,
+      securityIncidents,
       rollbackOperations,
       notifications,
       auditLogs,
@@ -1711,10 +2215,14 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       logoutUser,
       updateUserConnections,
       createProject,
+      updateProject,
       startRollback,
       addComment,
       resolveIncident,
       updateIncident,
+      fetchSecurityIncidents,
+      resolveSecurityIncident,
+      ignoreSecurityIncident,
       markNotificationAsRead,
       markAllNotificationsRead,
       installPlugin,
@@ -1726,6 +2234,10 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       addTeamMember,
       removeTeamMember,
       updateTeamMemberRole,
+      acceptTeamInvite,
+      declineTeamInvite,
+      pendingInvites,
+      refreshPendingInvites,
       triggerWebhookSimulation
     }}>
       {children}

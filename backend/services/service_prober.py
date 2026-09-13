@@ -11,26 +11,22 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
-import uuid
 
 from database import supabase
 from services.incident_service import create_from_alert
+from validators import is_valid_uuid
 
 logger = logging.getLogger(__name__)
 
 
-def is_valid_uuid(val: str) -> bool:
-    if not val:
-        return False
-    try:
-        uuid.UUID(str(val))
-        return True
-    except (ValueError, TypeError, AttributeError):
-        return False
+def _resolve_project(project_id: str) -> Optional[dict]:
+    """Find a project by UUID or name. Returns None if no project matches.
 
-
-def _resolve_project(project_id: str) -> dict:
-    """Find a project by UUID, name, or first available row."""
+    Callers must resolve within the authenticated user's project scope before
+    calling this; this helper never silently picks an arbitrary project, because
+    writing alerts/incidents against an unsolicited fallback project is a
+    cross-tenant data-integrity risk.
+    """
     if is_valid_uuid(project_id):
         res = supabase.table("projects").select("*").eq("id", project_id).execute()
         if res.data:
@@ -40,16 +36,7 @@ def _resolve_project(project_id: str) -> dict:
     if res.data:
         return res.data[0]
 
-    all_res = supabase.table("projects").select("*").limit(1).execute()
-    if all_res.data:
-        return all_res.data[0]
-
-    return {
-        "id": "36cfbab0-00cc-49ec-95ff-7eb70d513c25",
-        "name": "testing-service",
-        "url": "https://testing-brown-delta.vercel.app",
-        "provider": "vercel",
-    }
+    return None
 
 
 def _get_project_target_url(project: dict) -> str:
@@ -82,6 +69,8 @@ def _get_project_target_url(project: dict) -> str:
 async def probe_project(project_id: str, custom_url: Optional[str] = None) -> Dict[str, Any]:
     """Execute a comprehensive probe of all endpoints for the given project."""
     project = _resolve_project(project_id)
+    if project is None:
+        raise ValueError("Project not found")
     real_project_id = project["id"]
 
     target_base = custom_url or _get_project_target_url(project)
@@ -159,6 +148,8 @@ async def probe_project(project_id: str, custom_url: Optional[str] = None) -> Di
 async def trigger_test_event(project_id: str, test_type: str, custom_url: Optional[str] = None) -> Dict[str, Any]:
     """Trigger a specific test button action and write resulting alerts and incidents into Supabase."""
     project = _resolve_project(project_id)
+    if project is None:
+        raise ValueError("Project not found")
     real_project_id = project["id"]
 
     target_base = (custom_url or _get_project_target_url(project)).rstrip("/")

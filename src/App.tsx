@@ -1,27 +1,57 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { PlatformProvider, usePlatform } from './context/PlatformContext';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
+import { InviteBanner } from './components/InviteBanner';
+import { SearchModal } from './components/SearchModal';
 
-// Pages
+// Login is small and on the critical path — keep it synchronous
 import { Login } from './pages/Login';
-import { Dashboard } from './pages/Dashboard';
-import { Projects } from './pages/Projects';
-import { CreateProjectWizard } from './pages/CreateProjectWizard';
-import { ProjectDetails } from './pages/ProjectDetails';
-import { Deployments } from './pages/Deployments';
-import { DeploymentDetails } from './pages/DeploymentDetails';
-import { Incidents } from './pages/Incidents';
-import { RollbackRecovery } from './pages/RollbackRecovery';
-import { AIAssistant } from './pages/AIAssistant';
-import { Notifications } from './pages/Notifications';
-import { Settings } from './pages/Settings';
-import { Integrations } from './pages/Integrations';
-import { PluginConfig } from './pages/PluginConfig';
-import { Monitoring } from './pages/Monitoring';
+
+// All authenticated pages are lazy-loaded to reduce initial bundle size
+const Dashboard          = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
+const Projects           = lazy(() => import('./pages/Projects').then(m => ({ default: m.Projects })));
+const CreateProjectWizard = lazy(() => import('./pages/CreateProjectWizard').then(m => ({ default: m.CreateProjectWizard })));
+const ProjectDetails     = lazy(() => import('./pages/ProjectDetails').then(m => ({ default: m.ProjectDetails })));
+const Deployments        = lazy(() => import('./pages/Deployments').then(m => ({ default: m.Deployments })));
+const DeploymentDetails  = lazy(() => import('./pages/DeploymentDetails').then(m => ({ default: m.DeploymentDetails })));
+const Incidents          = lazy(() => import('./pages/Incidents').then(m => ({ default: m.Incidents })));
+const RollbackRecovery   = lazy(() => import('./pages/RollbackRecovery').then(m => ({ default: m.RollbackRecovery })));
+const AIAssistant        = lazy(() => import('./pages/AIAssistant').then(m => ({ default: m.AIAssistant })));
+const Notifications      = lazy(() => import('./pages/Notifications').then(m => ({ default: m.Notifications })));
+const Settings           = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
+const Integrations       = lazy(() => import('./pages/Integrations').then(m => ({ default: m.Integrations })));
+const PluginConfig       = lazy(() => import('./pages/PluginConfig').then(m => ({ default: m.PluginConfig })));
+const Monitoring         = lazy(() => import('./pages/Monitoring').then(m => ({ default: m.Monitoring })));
+const Automation         = lazy(() => import('./pages/Automation').then(m => ({ default: m.Automation })));
+const ScheduledTasks     = lazy(() => import('./pages/ScheduledTasks').then(m => ({ default: m.ScheduledTasks })));
+const ShareView          = lazy(() => import('./pages/ShareView').then(m => ({ default: m.ShareView })));
+
+/** Minimal spinner shown while a lazy page chunk is loading. */
+function PageLoader() {
+  return (
+    <div className="flex-1 flex items-center justify-center">
+      <div className="w-5 h-5 rounded-full border-2 border-zinc-700 border-t-zinc-300 animate-spin" />
+    </div>
+  );
+}
 
 const AppContent: React.FC = () => {
   const { user, currentPage } = usePlatform();
+
+  // Public, auth-free share routes: /share/{type}/{id}?token=...
+  if (window.location.pathname.startsWith('/share/')) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <ShareView />
+      </Suspense>
+    );
+  }
+
+  // Hard guard: never render protected pages without a user
+  if (!user) {
+    return <Login />;
+  }
 
   const renderPage = () => {
     switch (currentPage) {
@@ -39,22 +69,26 @@ const AppContent: React.FC = () => {
       case 'integrations':       return <Integrations />;
       case 'plugin-config':      return <PluginConfig />;
       case 'monitoring':         return <Monitoring />;
+      case 'automation':         return <Automation />;
+      case 'scheduled-tasks':    return <ScheduledTasks />;
       case 'login':
-      default:                   return <Login />;
+      default:                   return <Dashboard />;
     }
   };
-
-  if (!user) return <Login />;
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#050505]">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         <Header />
+        <InviteBanner />
         <main className="flex-1 overflow-y-auto p-6 bg-[#050505]">
-          {renderPage()}
+          <Suspense fallback={<PageLoader />}>
+            {renderPage()}
+          </Suspense>
         </main>
       </div>
+      <SearchModal />
     </div>
   );
 };

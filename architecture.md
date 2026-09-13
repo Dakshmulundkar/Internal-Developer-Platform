@@ -1,8 +1,8 @@
 # Architecture Document
 # Aether IDP — Internal Developer Platform
 
-**Version:** 1.5
-**Status:** Phase 1 + Phase 1.5 Complete · Phase 2 Spec Ready
+**Version:** 2.1
+**Status:** Phase 1 + Phase 2 Complete · Phase 2.1 Audit + Invite Flow Complete
 
 ---
 
@@ -491,3 +491,152 @@ Analysis results are cached in the `ai_analyses` table keyed by `incident_id`. S
 | Container registry | GitHub Container Registry (GHCR) | — |
 | GitOps controller | ArgoCD (in-cluster) | Kubernetes cluster |
 | CI/CD | GitHub Actions | On push to `main` |
+
+---
+
+## 11. Team Invite Flow Architecture (v2.1)
+
+### Overview
+
+When an admin invites a team member, the platform delivers the invite via **two independent channels** to maximise reliability:
+
+1. **Email** — styled HTML email via Resend containing Accept / Decline links with a 7-day expiry token
+2. **In-platform notification** — a `notifications` row inserted for the invited user if their email matches an existing Aether account
+
+Either channel alone is sufficient to respond to the invite. Both are non-blocking — failure of one does not prevent the other or the invite creation itself.
+
+### Invite Lifecycle
+
+```
+Admin clicks "Invite Member" in Settings
+              │
+              ▼
+POST /team
+  ├─ Validates role + admin permission
+  ├─ Looks up invitee email in Supabase Auth (admin API)
+  │    └─ target_user_id = NULL if not found (pending invite)
+  ├─ Checks for duplicate invite
+  ├─ Generates invite_token (secrets.token_urlsafe(32))
+  ├─ Sets invite_expires_at = now() + 7 days
+  ├─ Inserts team_members row (status='invited')
+  ├─ [async] send_team_invite() via Resend
+  │    └─ Falls back to console log if RESEND_API_KEY unset
+  ├─ [async] Inserts notifications row if target_user_id present
+  └─ Returns team_members row
+              │
+              ▼
+Frontend (InviteBanner) polls GET /team/invites/pending every 60s
+  └─ Matches by email OR user_id
+  └─ Shows collapsible blue banner with Accept / Decline per invite
+
+              │
+     ┌────────┴────────┐
+     ▼                 ▼
+Accept                Decline
+POST /team/{id}/accept   POST /team/{id}/decline
+  ?token={invite_token}    ?token={invite_token}
+  ├─ Validates token        ├─ Validates token
+  ├─ Checks expiry          ├─ Updates status='declined'
+  ├─ Binds user_id          └─ Clears invite_token
+  ├─ Updates status='accepted'
+  └─ Clears invite_token
+              │
+              ▼
+   notifications row marked read
+   InviteBanner disappears
+```
+
+### Database Changes (v1.7)
+
+```sql
+-- Added to existing team_members table
+ALTER TABLE team_members ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'accepted';
+ALTER TABLE team_members ADD COLUMN IF NOT EXISTS invite_token TEXT;
+ALTER TABLE team_members ADD COLUMN IF NOT EXISTS invite_expires_at TIMESTAMPTZ;
+
+-- New notifications table (in-platform inbox)
+CREATE TABLE notifications (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  type        TEXT NOT NULL,      -- 'team_invite' | 'incident_created' | ...
+  title       TEXT NOT NULL,
+  message     TEXT,
+  read        BOOLEAN DEFAULT FALSE,
+  data        JSONB DEFAULT '{}', -- type-specific payload (team_member_id, etc.)
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+-- RLS: each user sees only their own notifications
+```
+
+### Invite Security Properties
+
+| Property | Implementation |
+|----------|----------------|
+| Token secrecy | 32-byte URL-safe random token — not guessable |
+| Token scope | Stored in DB, cleared after accept or decline |
+| Token expiry | 7 days — enforced server-side |
+| Email mismatch | Caller's auth email must match invite email (or user_id) |
+| Token in URL fragment | `#/invite/accept?token=...` — never sent to server in Referer header |
+| Non-blocking email | Email failure never fails the invite creation |
+
+### Frontend Components
+
+```
+src/
+├── components/
+│   └── InviteBanner.tsx     # Blue banner, per-invite Accept/Decline, spinners
+├── context/
+│   └── PlatformContext.tsx  # pendingInvites[], refreshPendingInvites(),
+│                            # async acceptTeamInvite(), declineTeamInvite()
+├── pages/
+│   └── Settings.tsx         # Invite modal: dual-delivery info, sent confirmation
+└── services/
+    └── api.ts               # api.team.getPendingInvites(), acceptInvite(), declineInvite()
+```
+
+---
+
+## 12. Performance Architecture (v2.1 Audit)
+
+### Bundle Splitting
+
+All 17 page components are code-split via `React.lazy()` + `Suspense`. Vite `manualChunks` separates heavy libraries:
+
+```
+Chunk                    Gzip size   When loaded
+─────────────────────────────────────────────────
+index (app shell)        25 KB       Always
+vendor-react             43 KB       Always
+vendor-lucide            10 KB       Always
+vendor-query              8 KB       Always
+vendor-recharts          102 KB      Only on chart pages
+Dashboard                  6 KB      On navigate
+Monitoring                 6 KB      On navigate
+Incidents                  6 KB      On navigate
+...14 more page chunks     2–8 KB    On navigate
+─────────────────────────────────────────────────
+Before splitting:  971 KB gzip 241 KB (single chunk)
+After splitting:    99 KB gzip  25 KB initial load
+```
+
+### API Performance
+
+- `refreshData()` deferred via `setTimeout(0)` on login — dashboard shell renders first
+- `get_user_project_ids()` shared helper in `dependencies.py` — single Supabase query replaces 6 duplicates across routers
+- `api.team.getPendingInvites()` polled separately at 60 s interval — does not compete with 30 s main data poll
+
+---
+
+## 13. Resolved Bugs & Security Fixes (v2.1)
+
+| Issue | Resolution |
+|-------|-----------|
+| GitHub OAuth token in redirect URL | Token removed from URL — stored server-side only |
+| Hardcoded `http://localhost` in auth.py | `settings.APP_FRONTEND_URL` / `APP_BACKEND_URL` |
+| Rules of Hooks violation (useState in IIFE) | State hoisted to component top level |
+| Duplicate `TeamMember` interface | Merged into single declaration |
+| `datadog` missing from `AlertSource` union | Added to type + sourceIcon switch case |
+| Memory leaks (6 components, timer refs) | `useEffect` cleanup returns added to all |
+| `issuesApi.ts` missing auth headers | Rewrote to use authenticated `apiFetch` helper |
+| 6× duplicate `_user_project_ids` queries | Replaced with shared `get_user_project_ids()` |
+| `as any` casts throughout codebase | Eliminated — proper discriminated unions used |

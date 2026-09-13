@@ -2,13 +2,13 @@
 
 import json
 import logging
-import uuid
 from typing import Optional
 
 import httpx
 
 from config import settings
 from database import supabase
+from validators import is_valid_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +35,6 @@ _SYSTEM_PROMPT = (
     "steps (array of objects with title and description — actionable steps). "
     "The final step title must be exactly 'Mark incident as resolved'."
 )
-
-
-def _is_uuid(value: str) -> bool:
-    """Return True if value is a valid UUID string."""
-    try:
-        uuid.UUID(str(value))
-        return True
-    except (ValueError, AttributeError):
-        return False
 
 
 def _generate_smart_analysis(context: dict) -> dict:
@@ -333,7 +324,7 @@ def _normalize_response(parsed: dict, context: dict) -> dict:
 
 async def get_cached(incident_id: str) -> dict | None:
     """Return a cached analysis for the given incident, or None."""
-    if not _is_uuid(incident_id):
+    if not is_valid_uuid(incident_id):
         return None
     try:
         res = (
@@ -353,7 +344,7 @@ async def cache(incident_id: str, result: dict) -> None:
     
     Skipped for non-UUID IDs (seed/demo data).
     """
-    if not _is_uuid(incident_id):
+    if not is_valid_uuid(incident_id):
         return
     try:
         supabase.table("ai_analyses").upsert({
@@ -362,6 +353,6 @@ async def cache(incident_id: str, result: dict) -> None:
             "confidence": result.get("confidence", 0),
             "causes": result.get("causes", []),
             "steps": result.get("steps", []),
-        }).execute()
+        }, on_conflict="incident_id").execute()
     except Exception as exc:
         logger.warning("ai_service.cache failed: %s", exc)

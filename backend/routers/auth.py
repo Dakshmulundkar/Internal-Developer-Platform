@@ -19,9 +19,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 
 from config import settings
-from database import supabase
+from database import get_auth_client, supabase
 from dependencies import get_current_user
-from models.user import GithubLoginRequest, LoginRequest, RegisterRequest, UserResponse
+from models.user import GithubLoginRequest, LoginRequest, RefreshRequest, RegisterRequest, UserResponse
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ async def register(body: RegisterRequest) -> dict:
     the access_token will be None until the address is verified in that case.
     """
     try:
-        response = supabase.auth.sign_up(
+        response = get_auth_client().auth.sign_up(
             {
                 "email": body.email,
                 "password": body.password,
@@ -87,7 +87,7 @@ async def login(body: LoginRequest) -> dict:
     Returns the user, access_token, and refresh_token on success.
     """
     try:
-        response = supabase.auth.sign_in_with_password(
+        response = get_auth_client().auth.sign_in_with_password(
             {"email": body.email, "password": body.password}
         )
     except Exception as exc:
@@ -128,7 +128,7 @@ async def github_oauth_redirect() -> RedirectResponse:
     params = urllib.parse.urlencode({
         "client_id": settings.GITHUB_CLIENT_ID,
         "scope": "read:user user:email repo write:repo_hook",
-        "redirect_uri": "http://localhost:8000/auth/github/callback",
+        "redirect_uri": f"{settings.APP_BACKEND_URL}/auth/github/callback",
     })
     return RedirectResponse(url=f"https://github.com/login/oauth/authorize?{params}")
 
@@ -158,14 +158,14 @@ async def github_oauth_callback(code: str = Query(...)) -> RedirectResponse:
                 "client_id": settings.GITHUB_CLIENT_ID,
                 "client_secret": settings.GITHUB_CLIENT_SECRET,
                 "code": code,
-                "redirect_uri": "http://localhost:8000/auth/github/callback",
+                "redirect_uri": f"{settings.APP_BACKEND_URL}/auth/github/callback",
             },
         )
         token_data = token_resp.json()
         gh_access_token: str = token_data.get("access_token", "")
         if not gh_access_token:
             error = token_data.get("error_description", "GitHub token exchange failed")
-            return RedirectResponse(url=f"http://localhost:5173/?github_error={urllib.parse.quote(error)}")
+            return RedirectResponse(url=f"{settings.APP_FRONTEND_URL}/?github_error={urllib.parse.quote(error)}")
 
         # Step 2: Fetch user profile
         gh_headers = {
@@ -198,7 +198,7 @@ async def github_oauth_callback(code: str = Query(...)) -> RedirectResponse:
 
     # Step 4: Create or update Supabase user
     if not settings.SUPABASE_SERVICE_KEY:
-        return RedirectResponse(url="http://localhost:5173/?github_error=SUPABASE_SERVICE_KEY+not+configured")
+        return RedirectResponse(url=f"{settings.APP_FRONTEND_URL}/?github_error=SUPABASE_SERVICE_KEY+not+configured")
 
     from supabase import create_client
     admin_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
@@ -232,7 +232,7 @@ async def github_oauth_callback(code: str = Query(...)) -> RedirectResponse:
             })
         except Exception as exc:
             logger.error("Failed to create Supabase user: %s", exc)
-            return RedirectResponse(url=f"http://localhost:5173/?github_error={urllib.parse.quote(str(exc))}")
+            return RedirectResponse(url=f"{settings.APP_FRONTEND_URL}/?github_error={urllib.parse.quote(str(exc))}")
     else:
         try:
             admin_client.auth.admin.update_user_by_id(str(existing_user.id), {
@@ -244,7 +244,7 @@ async def github_oauth_callback(code: str = Query(...)) -> RedirectResponse:
 
     # Sign in to get a Supabase JWT
     try:
-        session_resp = supabase.auth.sign_in_with_password({
+        session_resp = get_auth_client().auth.sign_in_with_password({
             "email": email,
             "password": derived_password,
         })
@@ -252,7 +252,7 @@ async def github_oauth_callback(code: str = Query(...)) -> RedirectResponse:
         user_id = str(session_resp.user.id) if session_resp.user else ""
     except Exception as exc:
         logger.error("Supabase sign-in failed after GitHub OAuth: %s", exc)
-        return RedirectResponse(url=f"http://localhost:5173/?github_error={urllib.parse.quote(str(exc))}")
+        return RedirectResponse(url=f"{settings.APP_FRONTEND_URL}/?github_error={urllib.parse.quote(str(exc))}")
 
     # Auto-install GitHub plugin in Supabase (best-effort)
     if user_id:
@@ -290,9 +290,12 @@ async def github_oauth_callback(code: str = Query(...)) -> RedirectResponse:
         "email": email,
         "avatar": avatar_url,
         "github": github_username,
-        "gh_token": gh_access_token,  # needed for /auth/github/setup
+        # gh_token intentionally omitted: the GitHub access token is stored
+        # server-side in plugin_installations.api_key_encrypted during this
+        # callback. Passing it through the redirect URL would expose it to
+        # browser history, Referer headers, and server access logs.
     })
-    return RedirectResponse(url=f"http://localhost:5173/#/auth/github/success?{params}")
+    return RedirectResponse(url=f"{settings.APP_FRONTEND_URL}/#/auth/github/success?{params}")
 
 
 @router.post("/github")
@@ -367,7 +370,6 @@ async def github_login(body: GithubLoginRequest) -> dict:
             detail="GitHub login requires SUPABASE_SERVICE_KEY in backend/.env.",
         )
 
-    import secrets
     from supabase import create_client
     admin_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
 
@@ -425,7 +427,7 @@ async def github_login(body: GithubLoginRequest) -> dict:
 
     # Step 4: Sign in with password to get a real Supabase JWT session
     try:
-        session_resp = supabase.auth.sign_in_with_password({
+        session_resp = get_auth_client().auth.sign_in_with_password({
             "email": email,
             "password": derived_password,
         })
@@ -541,6 +543,37 @@ async def github_setup(body: GithubLoginRequest, current_user=Depends(get_curren
     }
 
 
+@router.post("/refresh")
+async def refresh(body: RefreshRequest) -> dict:
+    """Exchange a refresh token for a fresh access token.
+
+    Access tokens expire (default 1 hour); the client keeps the refresh_token
+    and calls this to silently rotate the session instead of forcing re-login.
+    """
+    try:
+        response = get_auth_client().auth.refresh_session(body.refresh_token)
+    except Exception as exc:
+        logger.warning("Refresh failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    if response.session is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session refresh failed.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return {
+        "user": _build_user_response(response.user).model_dump() if response.user else None,
+        "access_token": response.session.access_token,
+        "refresh_token": response.session.refresh_token,
+    }
+
+
 @router.post("/logout")
 async def logout() -> dict:
     """Sign out the current user.
@@ -549,7 +582,7 @@ async def logout() -> dict:
     The client is responsible for discarding its local token.
     """
     try:
-        supabase.auth.sign_out()
+        get_auth_client().auth.sign_out()
     except Exception as exc:
         # Non-fatal — the client should discard its token regardless.
         logger.warning("sign_out raised an exception (ignored): %s", exc)

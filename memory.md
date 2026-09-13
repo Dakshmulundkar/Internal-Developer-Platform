@@ -16,13 +16,13 @@
 | Author | Daksh Mulundkar |
 | GitHub | https://github.com/Dakshmulundkar/Internal-Developer-Platform |
 | Type | Final-year engineering project |
-| Current version | 1.5 |
+| Current version | 2.1 |
 
 ---
 
 ## What This Project Is
 
-A **centralized control-plane web application** for software teams. It connects to Vercel/Netlify (deployment), Grafana/Datadog/Sentry (monitoring), and GitHub (source) through plugins. It surfaces deployment health, monitoring alerts, and incidents in one dark-themed dashboard. It supports controlled rollback, AI-assisted diagnosis, per-project team management, and role-based access.
+A **centralized control-plane web application** for software teams. It connects to Vercel/Netlify (deployment), Grafana/Datadog/Sentry (monitoring), and GitHub (source) through plugins. It surfaces deployment health, monitoring alerts, and incidents in one dark-themed dashboard. It supports controlled rollback, AI-assisted diagnosis, per-project team management with full invite flow, role-based access, plus a real FastAPI backend with the feature scope below.
 
 **It does NOT:**
 - Host user applications
@@ -38,61 +38,114 @@ A **centralized control-plane web application** for software teams. It connects 
 |-------|--------|-------|
 | Phase 1 — Frontend UI Redesign | ✅ Complete | Incidents page fully rebuilt |
 | Phase 1.5 — Team UX + Plugin Data | ✅ Complete | All 13 tasks done, build passes |
-| Phase 2 — Backend (FastAPI) | ✅ Complete | Teammate's PR merged — live backend running |
+| Phase 2 — Backend (FastAPI) | ✅ Complete | Live backend running, routers + scheduler + websockets |
 | Phase 2 — Infrastructure (K8s/ArgoCD) | ✅ Complete | Manifests in k8s/ and argocd/ directories |
+| Phase 2.1 — Audit + Invite Flow | ✅ Complete | Full audit pass, team invite with email + in-platform notifications |
 
 ---
 
-## What Was Built (Phase 1 + 1.5)
+## Phase 2.1 — Master Audit Changes
 
-### Phase 1 — Incidents Page Redesign
-Complete rewrite of `src/pages/Incidents.tsx`:
-- GitGuardian-style list view with tab filters, filter chips, source badges, full table
-- Split-panel detail view with breadcrumb navigation
-- 4-tab detail navigation: Overview / Locations / Feedback / Activity
-- Overview tab: incident KV card, terminal log viewer, related alerts
-- Locations tab: perimeter stats, related deployments table
-- Feedback tab: real/false-positive toggle, comment + submit
-- Activity tab: merged timeline feed with icons, filter buttons
-- Right sidebar: Resolve ▾ dropdown, Ignore ▾ dropdown, details KV list, AI remediation checklist
-- New context action: `updateIncident(incidentId, updates)`
-- New type fields on `Incident`: `ignoredReason?`, `feedbackIsReal?`, `feedbackComment?`
+### Bugs Fixed
+| Bug | File(s) | Severity |
+|-----|---------|----------|
+| Rules of Hooks violation — `useState` inside IIFE in JSX | `Settings.tsx` | Critical |
+| Duplicate `TeamMember` interface (second one dropped `status` field) | `platform.ts` | High |
+| GitHub OAuth token (`gh_token`) leaked in redirect URL | `auth.py`, `Login.tsx`, `PlatformContext.tsx` | High |
+| Hardcoded `http://localhost` URLs in backend auth | `auth.py`, `config.py` | High |
+| `datadog` missing from `AlertSource` type | `platform.ts` | Medium |
+| Stale `isApiMode` missing from `useEffect` dependency array | `PlatformContext.tsx` | Medium |
+| Duplicate `localStorage.removeItem` on logout | `PlatformContext.tsx` | Low |
 
-### Phase 1.5 — Team UX + Plugin Data
-**Types (platform.ts):** `ProjectRole`, `TeamMember`, `ArgoCDAppStatus`
+### Dead Code Removed
+- `@tanstack/react-query-devtools` dependency (never rendered)
+- `mockArgoCDStatus` import in `Dashboard.tsx`
+- `initialSentryIssues` import in `Dashboard.tsx` and `ProjectDetails.tsx`
+- `setAuditLogs` destructuring in `ProjectDetails.tsx`
+- `import time` in `backend/routers/deployments.py`
+- `import secrets` in `backend/routers/auth.py`
 
-**Seed data (seedData.ts):**
-- `mockArgoCDStatus` — synced, sha `a1b2c3d`, ns `idp-production`
-- `initialTeamMembers` — 3 members on p1 (Daksh/admin, Sarah/developer, David/developer)
+### Performance
+- **Code splitting**: all 17 pages converted to `React.lazy()` + `Suspense`. Initial JS chunk: 970 KB → 91 KB (gzip: 241 KB → 23 KB). Pages load on demand.
+- **Login flow**: `refreshData()` deferred via `setTimeout(0)` — dashboard renders before API calls start.
+- **Backend deduplication**: `get_user_project_ids()` shared helper in `dependencies.py`, eliminating duplicate queries across 6 routers.
+- **`githubSetup` call removed from OAuth login path** — token no longer leaked to frontend.
 
-**Context (PlatformContext.tsx):**
-- `teamMembers` state with `idp_team` localStorage persistence
-- `addTeamMember`, `removeTeamMember`, `updateTeamMemberRole` actions (all log to audit)
+### New shared utility
+- `src/lib/alertUtils.ts` — `alertSourceColor()` and `alertSourceLabel()` used by Dashboard, Monitoring, Incidents, DeploymentDetails, ProjectDetails (was copy-pasted across all 5).
 
-**Dashboard.tsx:**
-- Service Health widget moved to full-width section below Audit Trail + Integration Health panels
-- Each stat box (Grafana/Sentry/Datadog) is now a large card with `text-2xl` value, status badge, and subtitle
-- Integration Health panel restored to its original clean state (just 6 provider rows)
-- ArgoCD as 6th row in Integration Health panel
+### Security
+- GitHub access token removed from OAuth redirect URL entirely
+- `APP_FRONTEND_URL` / `APP_BACKEND_URL` settings added to `config.py`; all 5 hardcoded localhost URLs replaced
+- `issuesApi.ts` rewrote unauthenticated `fetch()` calls to use the authenticated `api` helper
 
-**ProjectDetails.tsx:**
-- 6-tab shell: Overview, Deployments, Monitoring, Errors, Infrastructure, Team
-- Monitoring tab: project-scoped alerts with source badges
-- Errors tab: expandable Sentry issues with stack traces, Ask AI buttons
-- Infrastructure tab: ArgoCD mock KV, manual sync trigger, demo notice
-- Team tab: member table, invite modal, role edit, remove
+### TypeScript
+- `as any` casts eliminated across all pages and components
+- Sidebar `menuItems` typed against `PageType`
+- `SearchModal` uses `Record<string, unknown>` cast instead of `as any`
+- `Integrations.tsx` category filter cast replaced with proper type
 
-**DeploymentDetails.tsx:**
-- Plugin Signals section: monitoring alerts ±30 min + Sentry release issues
+---
 
-**Settings.tsx:**
-- Team Management card with same table + invite modal as ProjectDetails
+## Phase 2.1 — Team Invite Flow (NEW)
 
-**Role enforcement (Task 54):**
-- `RollbackRecovery.tsx` — rollback disabled for viewer (with tooltip)
-- `Integrations.tsx` — Configure/Remove hidden for non-admin
-- `PluginConfig.tsx` — Save hidden for non-admin (amber read-only notice shown)
-- `Incidents.tsx` — Resolve/Ignore hidden for viewer (role label shown)
+### What was built
+When an admin invites a member via **Settings → Team Management → Invite Member**:
+
+1. **Backend** (`backend/routers/team.py`):
+   - Generates a secure `invite_token` (32-byte `secrets.token_urlsafe`)
+   - Inserts `team_members` row with `status='invited'`, `invite_token`, `invite_expires_at` (7 days)
+   - Sends **invite email** via Resend (styled dark HTML + plain text fallback) with Accept / Decline links pointing to `{APP_FRONTEND_URL}/#/invite/accept?token=...`
+   - If the email matches an existing Aether account → inserts a **`notifications` row** so the user sees an in-platform banner immediately without needing to check email
+   - New endpoints: `POST /team/{id}/accept`, `POST /team/{id}/decline`, `GET /team/invites/pending`
+
+2. **Database** (`backend/supabase_schema_additions.sql` — v1.7 section):
+   - `ALTER TABLE team_members` adds `status`, `invite_token`, `invite_expires_at` columns (idempotent)
+   - New `notifications` table with RLS (user sees only their own rows), indexes for unread count and JSON path queries
+
+3. **Frontend**:
+   - `src/services/api.ts` — `api.team.getPendingInvites()`, `acceptInvite()`, `declineInvite()`
+   - `src/types/platform.ts` — `TeamMember` gains `projectName?`, `inviteToken?`, `inviteExpiresAt?`
+   - `src/context/PlatformContext.tsx` — `pendingInvites` state, `refreshPendingInvites()`, updated `acceptTeamInvite` / `declineTeamInvite` to be async and call API. Fetched on login + polled every 60 s.
+   - `src/components/InviteBanner.tsx` — collapsible blue banner at top of every page when pending invites exist. Per-invite Accept/Decline with spinners, error display, role badge, expiry date.
+   - `src/App.tsx` — `<InviteBanner />` mounted between `<Header />` and `<main>`
+   - `src/pages/Settings.tsx` — invite modal redesigned: dual-delivery info (Mail icon), sent-confirmation state (CheckCircle, auto-closes), spinner in Send button, improved role labels
+
+### Invite delivery matrix
+| Scenario | Email | In-platform banner |
+|----------|-------|--------------------|
+| Invited email has an Aether account | ✅ | ✅ |
+| Invited email has no Aether account | ✅ | ❌ (pending until they register) |
+| `RESEND_API_KEY` not set | console log | ✅ (if account exists) |
+
+---
+
+## Phase 2 Implemented Scope (backend + frontend)
+
+### Backend (`backend/`)
+- **FastAPI app** (`main.py`): CORS from `CORS_ORIGINS`, Supabase JWT auth via `get_current_user` (Bearer), WebSocket endpoint `/ws/{channel}`, APScheduler lifespan startup, all routers registered.
+- **Auth**: Supabase Auth (`supabase.auth.get_user()`). ES256 JWT. Do not reintroduce local HS256 decode.
+- **Routers**:
+  - `auth.py` — login, OAuth GitHub, refresh, me. All redirect URLs use `settings.APP_FRONTEND_URL` / `APP_BACKEND_URL`.
+  - `projects.py`, `deployments.py`, `incidents.py`, `monitoring.py`, `integrations.py`, `notifications.py`, `search.py`
+  - `team.py` — team members CRUD + roles + **full invite flow** (email + in-platform notification + accept/decline endpoints)
+  - `automation.py`, `scheduled_tasks.py`, `sharing.py`, `comments.py`, `ai.py`, `activity.py`, `webhooks.py`
+- **Shared helper**: `dependencies.py` → `get_user_project_ids(user_id)` used by all 6 routers that filter by project ownership.
+- **Email service**: `services/email_service.py` — Resend integration with templates for invite, incident, rollback.
+
+### Supabase schema
+- `backend/supabase_schema.sql` — base schema
+- `backend/supabase_schema_additions.sql` — Phase 2 additions:
+  - v1.0–1.6: comments, activities, attachments, team_members, share_links, user_preferences, automation_rules, scheduled_tasks, search indexes
+  - **v1.7**: `ALTER TABLE team_members` (status/invite_token/invite_expires_at) + new `notifications` table
+- ⚠️ **Must be executed** in Supabase SQL editor before new features persist end-to-end.
+
+### Frontend (`src/`)
+- **Code splitting**: all 17 pages `React.lazy()` + `Suspense`. Initial bundle: 91 KB (was 970 KB).
+- **`services/api.ts`** — namespaces: `auth`, `deployments`, `incidents`, `monitoring`, `integrations`, `plugins`, `team` (incl. invite endpoints), `notifications`, `search`, `comments`, `attachments`, `automation`, `scheduledTasks`, `sharing`, `security`.
+- **`context/PlatformContext.tsx`** — exports `PageType`; `pendingInvites` + `refreshPendingInvites`; async `acceptTeamInvite`/`declineTeamInvite`; `refreshData` deferred on login.
+- **Components**: `InviteBanner`, `ShareDialog`, `SearchModal`, `ActivityFeed`, `CommentSection`
+- **Pages**: Dashboard (widget customization), Automation (drag-reorder, Jira-style), ScheduledTasks (drag-reorder), Settings (invite modal with dual-delivery UX), all others enriched with share/comments/activities.
 
 ---
 
@@ -100,22 +153,23 @@ Complete rewrite of `src/pages/Incidents.tsx`:
 
 | File | Purpose |
 |------|---------|
-| `src/types/platform.ts` | All TypeScript types and interfaces |
-| `src/data/seedData.ts` | Demo seed data (945 lines) |
-| `src/context/PlatformContext.tsx` | Global state, all actions, localStorage sync (1100 lines) |
-| `src/pages/Incidents.tsx` | Full incident management page (main Phase 1 deliverable) |
-| `src/pages/ProjectDetails.tsx` | 6-tab project hub (main Phase 1.5 frontend deliverable) |
-| `src/pages/Dashboard.tsx` | Main dashboard with Service Health + ArgoCD widgets |
-| `src/pages/DeploymentDetails.tsx` | Build stages, logs, AI analysis, Plugin Signals |
-| `src/pages/Settings.tsx` | Provider connections + Team Management |
-| `src/pages/RollbackRecovery.tsx` | Rollback workflow with role enforcement |
-| `src/pages/Integrations.tsx` | Plugin marketplace with role enforcement |
-| `src/pages/PluginConfig.tsx` | Per-plugin config with role enforcement |
-| `.kiro/specs/incidents-redesign/` | Full spec: requirements.md, design.md, tasks.md |
-| `prd.md` | Product Requirements Document |
-| `architecture.md` | System + frontend + backend + infra architecture |
-| `rules.md` | Agent rules — mandatory reading before any change (23 rules) |
-| `phases.md` | Per-task implementation history and status |
+| `backend/main.py` | FastAPI app entrypoint, lifespan scheduler, WS endpoint |
+| `backend/routers/team.py` | Team CRUD + invite flow (email + notification + accept/decline) |
+| `backend/services/email_service.py` | Resend email: invite, incident, rollback templates |
+| `backend/dependencies.py` | `get_current_user`, `get_user_project_ids` shared helpers |
+| `backend/supabase_schema_additions.sql` | All Phase 2 schema additions incl. v1.7 invite columns |
+| `backend/config.py` | Settings: `APP_FRONTEND_URL`, `APP_BACKEND_URL`, email, OAuth |
+| `src/services/api.ts` | API client namespaces + `isApiAvailable()` + invite endpoints |
+| `src/context/PlatformContext.tsx` | Global state, pendingInvites, async invite actions, WS |
+| `src/components/InviteBanner.tsx` | In-platform invite banner (Accept/Decline) |
+| `src/components/ShareDialog.tsx` | Share-link dialog |
+| `src/components/SearchModal.tsx` | Global Ctrl+K search overlay |
+| `src/lib/alertUtils.ts` | Shared `alertSourceColor()` / `alertSourceLabel()` |
+| `src/pages/Settings.tsx` | Settings page incl. improved invite modal |
+| `src/pages/Automation.tsx` | Jira-like automation rules UI |
+| `src/pages/ScheduledTasks.tsx` | CRON task cards UI |
+| `src/types/platform.ts` | All TypeScript types (TeamMember has invite fields) |
+| `src/data/seedData.ts` | Demo seed data |
 | `memory.md` | This file — project state snapshot |
 
 ---
@@ -125,15 +179,19 @@ Complete rewrite of `src/pages/Incidents.tsx`:
 | Decision | Rationale |
 |----------|-----------|
 | React Context instead of Redux/Zustand | Sufficient for demo scope; zero extra dependencies |
-| Single-page navigation (no React Router) | Simpler state management; `navigateTo()` in context keeps nav state synced |
+| Single-page navigation (no React Router) | Simpler state management; `navigateTo()` in context |
 | localStorage persistence for all state | Enables full demo mode; survives page refresh |
-| `?? 'admin'` default for `userProjectRole` | Ensures demo mode always shows full access (user not in teamMembers seed data) |
-| Optional fields on Incident interface | Prevents breaking existing seed data when adding new Phase 1.5 fields |
-| Seed data as truth for demo mode | No network requests needed; fully functional offline |
-| ArgoCD GitOps for backend deployment | All infrastructure changes are auditable through Git history |
-| Multi-stage Docker build | Smaller production image; builder dependencies not in runtime |
-| Kustomize overlays | Single base manifest; environment differences managed declaratively |
-| Supabase Vault for API keys | Provider tokens never appear in frontend state or logs |
+| Supabase Auth for real auth (ES256 JWT) | WS and HTTP share one token path |
+| `isApiAvailable()` gating everywhere | Demo mode stays fully functional without backend |
+| APScheduler in-process (lifespan) | No extra infra; `apscheduler==3.10.4` pinned |
+| Native HTML5 drag-and-drop reorder | No new dependency; `useDragReorder` shared |
+| Share links via public token route | Password + expiry optional |
+| Postgres FTS for search | Full-text search without extra services |
+| Code splitting via `React.lazy()` | 91 KB initial bundle (was 970 KB) |
+| `get_user_project_ids()` shared helper | Single point of truth for project ownership queries |
+| Dual-delivery invites | Email via Resend + in-platform notification ensures invitee always gets it |
+| Invite token in URL fragment only | Never in server logs or Referer headers |
+| 7-day invite expiry | Balances convenience vs. security |
 
 ---
 
@@ -148,28 +206,10 @@ Complete rewrite of `src/pages/Incidents.tsx`:
 | p4 | Auth Gateway | netlify | ready |
 | p5 | Developer Documentation API | vercel | rolled_back |
 
-### Incidents (3)
-| ID | Project | Severity | Status |
-|----|---------|----------|--------|
-| inc101 | Customer Support Portal | critical | open |
-| inc102 | Developer Documentation API | high | investigating |
-| inc103 | E-Commerce Frontend | medium | resolved |
-
-### AI Explanations Available
-- `d201` — TypeScript compiler failure (98% confidence)
-- `d501` — Missing DATABASE_URL env var (92% confidence)
-
 ### Team Members (on p1)
 - `tm1` — Daksh Mulundkar — admin
 - `tm2` — Sarah Chen — developer
 - `tm3` — David Kim — developer
-
-### Plugin Installations
-- GitHub — connected
-- Vercel — connected
-- Netlify — error (webhook signature mismatch)
-- Grafana — connected
-- Sentry — syncing
 
 ---
 
@@ -178,11 +218,19 @@ Complete rewrite of `src/pages/Incidents.tsx`:
 | Variable | Used by | Purpose |
 |----------|---------|---------|
 | `VITE_API_URL` | Frontend | Backend API base URL. If not set → demo mode |
-| `VITE_WS_URL` | Frontend | WebSocket URL. If not set → no real-time |
+| `VITE_WS_URL` | Frontend | WebSocket URL |
+| `VITE_USE_API` | Frontend | Force API mode with dev proxy |
 | `SUPABASE_URL` | Backend | Supabase project URL |
 | `SUPABASE_KEY` | Backend | Supabase service role key |
 | `OPENAI_API_KEY` | Backend | OpenAI API key for AI analysis |
 | `GROQ_API_KEY` | Backend | Groq API key (free tier alternative) |
+| `RESEND_API_KEY` | Backend | Resend email delivery (invites, incidents, rollbacks) |
+| `FROM_EMAIL` | Backend | Sender address for Resend emails |
+| `FROM_NAME` | Backend | Sender display name (default: "Aether IDP") |
+| `APP_FRONTEND_URL` | Backend | Frontend origin for invite accept/decline links |
+| `APP_BACKEND_URL` | Backend | Backend origin for GitHub OAuth callback |
+| `GITHUB_CLIENT_ID` | Backend | GitHub OAuth App client ID |
+| `GITHUB_CLIENT_SECRET` | Backend | GitHub OAuth App secret |
 | `VERCEL_WEBHOOK_SECRET` | Backend | Webhook signature validation |
 | `NETLIFY_WEBHOOK_SECRET` | Backend | Webhook signature validation |
 | `CORS_ORIGINS` | Backend | Comma-separated allowed origins |
@@ -195,48 +243,67 @@ Complete rewrite of `src/pages/Incidents.tsx`:
 # Run frontend in dev mode
 npm run dev
 
-# Type-check + build
+# Type-check (must pass before finishing any task)
+npx tsc --noEmit
+
+# Run backend locally
+cd backend && .\venv\Scripts\activate && uvicorn main:app --reload
+
+# Backend Python syntax check
+python -m compileall backend -q
+
+# Production build
 npm run build
 
-# Run backend locally (Phase 2)
-cd backend && uvicorn main:app --reload
-
-# Build Docker image (Phase 2)
+# Build Docker image
 docker build -t ghcr.io/dakshmulundkar/idp-backend:latest ./backend
-
-# Apply ArgoCD apps to cluster (Phase 2)
-kubectl apply -f argocd/ -n argocd
 ```
 
 ---
 
-## What's Next (Phase 2)
+## What's Next
 
-### Immediate next tasks (in order):
-1. **Task 15** — Set up FastAPI backend project (`backend/` folder, pyproject.toml, main.py, config.py, database.py, .env.example)
-2. **Task 16** — Supabase database setup (run SQL schema, enable RLS, enable Realtime)
-3. **Task 17** — Real authentication backend (Supabase Auth integration)
-4. **Task 18** — Real authentication frontend (`src/services/api.ts`, demo fallback)
-5. Continue Tasks 19–34 for full backend, then Tasks 35–42 for infrastructure
+1. **(User action required)** Run **`backend/supabase_schema_additions.sql`** in the Supabase SQL editor — this applies the v1.7 `team_members` invite columns and creates the `notifications` table. Restart `uvicorn` after.
+2. **(User action required)** Set `RESEND_API_KEY`, `FROM_EMAIL`, `APP_FRONTEND_URL` in `backend/.env` — without these the email invite falls back to console logging (in-platform notification still works if the user has an account).
+3. Dashboard widget drag-and-drop customization — optional remaining frontend item.
 
-### Constraint to remember:
-- No UI changes during Phase 2
-- Demo mode must always remain functional
-- All tests must pass before moving to the next backend task
+## Constraints to remember
+- No Kanban/Scrum features.
+- Demo mode must always remain functional (seed data + localStorage).
+- Do NOT hardcode localhost URLs — always use `settings.APP_FRONTEND_URL` / `APP_BACKEND_URL`.
+- Supabase ES256 JWT: always use `supabase.auth.get_user()`, never manual HS256 decode.
 
 ---
 
 ## Last Verified State
 
 ```
-Date: September 5, 2026
-Build: npm run build → Exit 0, 2052 modules, 0 errors
-TypeScript: tsc passes with 0 errors across all modified files
-Phase 1: ✅ Complete (Tasks 1–14)
-Phase 1.5: ✅ Complete (Tasks 43–55)
+Date: September 13, 2026
+TypeScript: npx tsc --noEmit → 0 errors
+Build: npm run build → ✔ built in 3.16s, 30 chunks, initial bundle 99 KB gzip 25 KB
+Backend: python -m compileall backend -q → passes
 
-Recent changes:
-- Dashboard.tsx: Service Health widget moved out of right column to full-width section below
-- rules.md: Fully rewritten as agent rules (23 rules) with mandatory pre-edit reading checklist,
-  memory.md update requirement, and self-check list
+Phase 2.1 audit changes (all verified):
+- 970 KB initial chunk → 91 KB via React.lazy() code splitting
+- Rules of Hooks violation in Settings.tsx — fixed
+- Duplicate TeamMember interface — merged
+- gh_token removed from OAuth redirect URL
+- Hardcoded localhost in auth.py replaced with settings.*_URL
+- datadog added to AlertSource type
+- Dead imports/dependencies removed
+- Memory leaks fixed (6 components, all timers have useEffect cleanup)
+- get_user_project_ids() shared helper replaces 6 duplicate queries
+- alertUtils.ts shared helper replaces 5 duplicate source-color functions
+- as any casts eliminated across all files
+- Sidebar menuItems typed against PageType
+
+Team invite flow (all verified):
+- email_service.py: send_team_invite() with dark HTML template
+- team.py: generates invite_token, sends email, inserts notification
+- supabase_schema_additions.sql v1.7: team_members columns + notifications table
+- api.ts: getPendingInvites, acceptInvite, declineInvite
+- PlatformContext: pendingInvites state, refreshPendingInvites, async accept/decline
+- InviteBanner.tsx: collapsible banner, per-invite Accept/Decline, spinner, error display
+- App.tsx: InviteBanner mounted between Header and main
+- Settings.tsx: dual-delivery info, sent-confirmation state, spinner
 ```

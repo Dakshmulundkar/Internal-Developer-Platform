@@ -3,9 +3,11 @@ import { usePlatform } from '../context/PlatformContext';
 import {
   ArrowLeft, Github, ExternalLink, RefreshCw, AlertTriangle,
   History, CheckCircle2, ChevronRight, HelpCircle, GitMerge,
-  Activity, Bug, Server, Users, ChevronDown, ChevronUp, Plus, X
+  Activity, Bug, Server, Users, ChevronDown, ChevronUp, Plus, X, Share2
 } from 'lucide-react';
-import { initialSentryIssues, mockArgoCDStatus } from '../data/seedData';
+import { mockArgoCDStatus } from '../data/seedData';
+import { ShareDialog } from '../components/ShareDialog';
+import { alertSourceColor, alertSourceLabel } from '../lib/alertUtils';
 import type { DeploymentStatus, IncidentSeverity, ProjectRole } from '../types/platform';
 
 type ProjectTab = 'overview' | 'deployments' | 'monitoring' | 'errors' | 'infrastructure' | 'team';
@@ -19,21 +21,8 @@ const relTime = (ts: string) => {
   return `${Math.floor(h / 24)}d ago`;
 };
 
-const sourceBadge = (source: string) => {
-  const map: Record<string, string> = {
-    grafana: 'bg-orange-500/10 text-orange-400 border border-orange-500/20',
-    datadog: 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
-    sentry:  'bg-violet-500/10 text-violet-400 border border-violet-500/20',
-    vercel:  'bg-zinc-500/10 text-zinc-200 border border-zinc-500/20',
-    netlify: 'bg-teal-500/10 text-teal-400 border border-teal-500/20',
-  };
-  return map[source.toLowerCase()] || 'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20';
-};
-
-const sourceLabel = (source: string) => {
-  const map: Record<string, string> = { grafana: 'GF', datadog: 'DD', sentry: 'SN', vercel: 'VC', netlify: 'NF' };
-  return map[source.toLowerCase()] || source.slice(0, 2).toUpperCase();
-};
+const sourceBadge = alertSourceColor;
+const sourceLabel = alertSourceLabel;
 
 const levelPill = (level: string) => {
   const map: Record<string, string> = {
@@ -61,13 +50,14 @@ export const ProjectDetails: React.FC = () => {
   const {
     activeProjectId, projects, deployments, incidents, navigateTo,
     monitoringAlerts, teamMembers, addTeamMember, removeTeamMember,
-    updateTeamMemberRole, user, auditLogs, setAuditLogs, sentryIssues
-  } = usePlatform() as any;
+    updateTeamMemberRole, user, auditLogs, sentryIssues
+  } = usePlatform();
 
   const [activeTab, setActiveTab] = useState<ProjectTab>('overview');
   const [expandedIssueId, setExpandedIssueId] = useState<string | null>(null);
   const [syncTriggered, setSyncTriggered] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showShare, setShowShare] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<ProjectRole>('developer');
 
@@ -148,8 +138,25 @@ export const ProjectDetails: React.FC = () => {
           </div>
           <h2 className="text-xl font-semibold text-white tracking-tight">{project.name}</h2>
         </div>
-        {getStatusIndicator(project.status)}
+        <div className="flex items-center gap-3">
+          {getStatusIndicator(project.status)}
+          <button
+            onClick={() => setShowShare(true)}
+            className="flex items-center gap-1.5 bg-zinc-900 text-zinc-300 border border-white/[0.06] text-xs font-medium px-3 py-1.5 rounded-md transition-all hover:bg-zinc-800"
+          >
+            <Share2 size={12} /> Share
+          </button>
+        </div>
       </div>
+
+      {showShare && (
+        <ShareDialog
+          entityType="project"
+          entityId={project.id}
+          entityName={project.name}
+          onClose={() => setShowShare(false)}
+        />
+      )}
 
       {/* 6-tab bar */}
       <div className="flex border-b border-white/[0.06]">
