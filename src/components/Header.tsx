@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import { Bell, Activity, Send, CheckCircle, XCircle, Search, ShieldAlert } from 'lucide-react';
 import type { DeploymentStatus } from '../types/platform';
@@ -37,7 +37,10 @@ export const Header: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const unreadNotifications = notifications.filter(n => !n.read);
+  const unreadNotifications = useMemo(
+    () => notifications.filter(n => !n.read),
+    [notifications],
+  );
 
   const getHeaderTitle = () => {
     switch (currentPage) {
@@ -55,7 +58,7 @@ export const Header: React.FC = () => {
       case 'integrations': return 'Plugin Marketplace & Integrations';
       case 'plugin-config': return 'Plugin Configuration';
       case 'monitoring': return 'Monitoring & Observability';
-      case 'automation': return 'Automation Rules';
+      case 'automation': return 'Pipeline Center';
       case 'scheduled-tasks': return 'Scheduled Tasks';
       default: return 'Control Center';
     }

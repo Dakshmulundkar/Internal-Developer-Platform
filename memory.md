@@ -41,6 +41,49 @@ A **centralized control-plane web application** for software teams. It connects 
 | Phase 2 — Backend (FastAPI) | ✅ Complete | Live backend running, routers + scheduler + websockets |
 | Phase 2 — Infrastructure (K8s/ArgoCD) | ✅ Complete | Manifests in k8s/ and argocd/ directories |
 | Phase 2.1 — Audit + Invite Flow | ✅ Complete | Full audit pass, team invite with email + in-platform notifications |
+| Phase 3 — Multi-Tenant Isolation Audit | ✅ Complete | Report → `SECURITY_AUDIT.md`, all High + Medium fixes applied & verified |
+
+---
+
+## Phase 3 — Multi-Tenant Isolation Audit (2026-09-13)
+
+Read-only audit first, then incremental fixes. Durable report: **`SECURITY_AUDIT.md`** (repo root).
+Architecture: NO `teams`/workspace table — **the project is the tenant boundary**;
+`team_members.project_id → projects.id` with roles viewer/developer/admin + implicit owner.
+
+### Key facts
+- Backend uses the **service-role key and bypasses RLS by design**; owner-centric RLS is
+  latent defense only. Server-side handler scoping (`get_user_project_ids`) is the live boundary.
+- The repo's own tracker `PROGRESS.md` (16 phases) has been updated under "Phase 8/16 update".
+
+### Fixes applied (High)
+| Fix | What |
+|-----|------|
+| FIX-A | `/monitoring/events`: anonymous callers rejected unless `X-Event-Intake-Secret` == `EVENT_INTAKE_TOKEN` (fail-closed) |
+| FIX-B | `/upload` requires existing `comment_id` + project membership (orphan/cross-tenant uploads rejected) |
+| FIX-C | `/plugins/test` SSRF guard (`_assert_safe_target`) + `follow_redirects=False` |
+| FIX-D | rollback `target_deployment_id` must belong to the caller's project |
+| FIX-E | `service_prober._safe_get` re-asserts safety on every redirect hop |
+
+### Fixes applied (Medium)
+| Fix | What |
+|-----|------|
+| FIX-F | Automation webhook action: URL must pass SSRF guard, no redirect follow |
+| FIX-G | WebSocket broadcast filters `team_members.status='accepted'` |
+| FIX-H | Automation rules re-check rule-owner project access at fire time |
+| FIX-I | Automation `notify` target restricted to project owner/accepted members |
+| FIX-J | Share passwords → PBKDF2-HMAC-SHA256 (600k iter + salt), legacy auto-upgrade |
+| FIX-K | `/team/search` + invites: paginated `list_users` (1000-user cap), 30/min rate limit |
+| FIX-L | Rollback polling token scoped to `installed_by = project.owner_id` |
+
+### Deferred / residual
+- Attachments bucket still public-by-default; private-bucket + signed URLs is the follow-up.
+- Low items: audit `select("*")`, untyped incident body, AI-analyze rate limit, global `/monitoring/sync`.
+- RLS remains service-role-bypassed by design; rework only if a Supabase client ever ships to the browser.
+
+### Config addition
+- **`EVENT_INTAKE_TOKEN`** (backend `.env`, optional) — shared secret enabling anonymous
+  event intake to `/monitoring/events`; unset → anonymous rejected (fail-closed).
 
 ---
 
@@ -170,6 +213,9 @@ When an admin invites a member via **Settings → Team Management → Invite Mem
 | `src/pages/ScheduledTasks.tsx` | CRON task cards UI |
 | `src/types/platform.ts` | All TypeScript types (TeamMember has invite fields) |
 | `src/data/seedData.ts` | Demo seed data |
+| `SECURITY_AUDIT.md` | Multi-tenant isolation audit report (findings A–P + fixes) |
+| `PROGRESS.md` | 16-phase audit tracker (Phase 8/16 update logged) |
+| `backend/rate_limit.py` | In-process fixed-window rate limiter (auth, team search) |
 | `memory.md` | This file — project state snapshot |
 
 ---
@@ -231,6 +277,7 @@ When an admin invites a member via **Settings → Team Management → Invite Mem
 | `APP_BACKEND_URL` | Backend | Backend origin for GitHub OAuth callback |
 | `GITHUB_CLIENT_ID` | Backend | GitHub OAuth App client ID |
 | `GITHUB_CLIENT_SECRET` | Backend | GitHub OAuth App secret |
+| `EVENT_INTAKE_TOKEN` | Backend | Shared secret for anonymous `/monitoring/events` intake (optional; unset = fail-closed) |
 | `VERCEL_WEBHOOK_SECRET` | Backend | Webhook signature validation |
 | `NETLIFY_WEBHOOK_SECRET` | Backend | Webhook signature validation |
 | `CORS_ORIGINS` | Backend | Comma-separated allowed origins |
@@ -263,15 +310,23 @@ docker build -t ghcr.io/dakshmulundkar/idp-backend:latest ./backend
 
 ## What's Next
 
-1. **(User action required)** Run **`backend/supabase_schema_additions.sql`** in the Supabase SQL editor — this applies the v1.7 `team_members` invite columns and creates the `notifications` table. Restart `uvicorn` after.
-2. **(User action required)** Set `RESEND_API_KEY`, `FROM_EMAIL`, `APP_FRONTEND_URL` in `backend/.env` — without these the email invite falls back to console logging (in-platform notification still works if the user has an account).
-3. Dashboard widget drag-and-drop customization — optional remaining frontend item.
+1. **(Optional env)** Set `EVENT_INTAKE_TOKEN` in `backend/.env` if external test runners
+   should be able to POST to `/monitoring/events` without an account (leaves it fail-closed otherwise).
+2. **(Follow-up)** Attachments bucket: switch to private + signed-URL read path (FIND-B residual).
+3. **(Low)** `audit select("*")` (FIND-N), untyped incident body (FIND-O), AI-analyze rate limit
+   (FIND-P), `/monitoring/sync` global trigger (FIND-M)` — documented in SECURITY_AUDIT.md §26.
+4. Commit the current changes (all uncommitted): isolation fixes + SECURITY_AUDIT.md + PROGRESS.md/memory.md updates.
 
 ## Constraints to remember
 - No Kanban/Scrum features.
 - Demo mode must always remain functional (seed data + localStorage).
 - Do NOT hardcode localhost URLs — always use `settings.APP_FRONTEND_URL` / `APP_BACKEND_URL`.
 - Supabase ES256 JWT: always use `supabase.auth.get_user()`, never manual HS256 decode.
+- Tenancy: the **project is the tenant boundary**; every handler scopes via `get_user_project_ids`.
+- SSRF: `custom_url` probes, plugin test targets, and automation webhooks must pass
+  `_assert_safe_target`; do not `follow_redirects=True` on user-controlled targets.
+- `/monitoring/events` anonymous intake stays fail-closed unless `EVENT_INTAKE_TOKEN` is set.
+- Invite/accept visibility rules: data visibility starts on **status='accepted'** (WS + scoping).
 
 ---
 
@@ -280,30 +335,18 @@ docker build -t ghcr.io/dakshmulundkar/idp-backend:latest ./backend
 ```
 Date: September 13, 2026
 TypeScript: npx tsc --noEmit → 0 errors
-Build: npm run build → ✔ built in 3.16s, 30 chunks, initial bundle 99 KB gzip 25 KB
+Build: npm run build → ✔ built in 26.6s, frontend production bundle OK
 Backend: python -m compileall backend -q → passes
+App wiring: import main + TestClient GET /health → 200, route wiring OK
+Guard tests: share KDF + SSRF redirect-hop checks → passed
+Temp artifacts: D:\dev\temp\opencode\guard_checks.py + supabase_probe*.log removed
 
-Phase 2.1 audit changes (all verified):
-- 970 KB initial chunk → 91 KB via React.lazy() code splitting
-- Rules of Hooks violation in Settings.tsx — fixed
-- Duplicate TeamMember interface — merged
-- gh_token removed from OAuth redirect URL
-- Hardcoded localhost in auth.py replaced with settings.*_URL
-- datadog added to AlertSource type
-- Dead imports/dependencies removed
-- Memory leaks fixed (6 components, all timers have useEffect cleanup)
-- get_user_project_ids() shared helper replaces 6 duplicate queries
-- alertUtils.ts shared helper replaces 5 duplicate source-color functions
-- as any casts eliminated across all files
-- Sidebar menuItems typed against PageType
-
-Team invite flow (all verified):
-- email_service.py: send_team_invite() with dark HTML template
-- team.py: generates invite_token, sends email, inserts notification
-- supabase_schema_additions.sql v1.7: team_members columns + notifications table
-- api.ts: getPendingInvites, acceptInvite, declineInvite
-- PlatformContext: pendingInvites state, refreshPendingInvites, async accept/decline
-- InviteBanner.tsx: collapsible banner, per-invite Accept/Decline, spinner, error display
-- App.tsx: InviteBanner mounted between Header and main
-- Settings.tsx: dual-delivery info, sent-confirmation state, spinner
+Isolation audit + fixes (Phase 3, all verified):
+- SECURITY_AUDIT.md written (findings A–P, tenancy/RBAC/RLS matrix)
+- FIX-A..E (High): monitoring events fail-closed, upload membership, plugins SSRF,
+  rollback project check, prober redirect revalidation
+- FIX-F..L (Medium): automation SSRF/membership/notify, WS accepted filter,
+  share PBKDF2, team search pagination, poll token scoping
+- Config: EVENT_INTAKE_TOKEN added (optional, fail-closed)
+- No RLS, schema, or credential changes made
 ```

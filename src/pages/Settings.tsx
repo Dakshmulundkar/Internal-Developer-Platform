@@ -91,8 +91,7 @@ const [inviteEmail, setInviteEmail] = useState('');
     }
 
     setSaveSuccess(true);
-    const t = setTimeout(() => setSaveSuccess(false), 3000);
-    return () => clearTimeout(t);
+    setTimeout(() => setSaveSuccess(false), 3000);
   };
 
   const connStatus = (installed: boolean, status?: string) => {

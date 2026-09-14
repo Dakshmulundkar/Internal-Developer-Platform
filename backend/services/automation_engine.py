@@ -110,6 +110,31 @@ def _resolve_target_user(entity: dict, rule: dict):
     return str(entity.get("owner_id") or rule.get("owner_id") or "")
 
 
+def _project_member_ids(project_id: str) -> set[str]:
+    """Return the project owner + accepted team member user ids (RBAC audience)."""
+    ids: set[str] = set()
+    try:
+        owner = supabase.table("projects").select("owner_id").eq("id", project_id).single().execute()
+        if owner.data and owner.data.get("owner_id"):
+            ids.add(str(owner.data["owner_id"]))
+    except Exception as exc:
+        logger.debug("automation: owner lookup failed for %s: %s", project_id, exc)
+    try:
+        members = (
+            supabase.table("team_members")
+            .select("user_id")
+            .eq("project_id", project_id)
+            .eq("status", "accepted")
+            .execute()
+        )
+        for m in members.data or []:
+            if m.get("user_id"):
+                ids.add(str(m["user_id"]))
+    except Exception as exc:
+        logger.debug("automation: member lookup failed for %s: %s", project_id, exc)
+    return ids
+
+
 async def _run_action(action: dict, event_type: str, entity: dict, rule: dict, context: dict) -> dict:
     """Execute a single action. Returns {'status': ..., 'detail': ...}."""
     atype = (action.get("type") or "").lower()
@@ -121,6 +146,15 @@ async def _run_action(action: dict, event_type: str, entity: dict, rule: dict, c
     try:
         if atype == "notify":
             from services.notification_service import create_notification
+
+            # Tenant-isolation guard: notifications may only target the project
+            # owner or an ACCEPTED team member of the triggering project.
+            # prevents cross-tenant notification spam / contact mining.
+            member_ids = _project_member_ids(project_id) if project_id else set()
+            if not target_user or (project_id and str(target_user) not in member_ids):
+                return {"status": "skipped", "detail": "Notify target is not a member of the triggering project"}
+            if not project_id and str(target_user) != str(rule.get("owner_id") or ""):
+                return {"status": "skipped", "detail": "Notify target is not the rule owner"}
 
             await create_notification(
                 user_id=target_user,
@@ -151,6 +185,16 @@ async def _run_action(action: dict, event_type: str, entity: dict, rule: dict, c
         if atype == "webhook":
             import httpx
 
+            url = action.get("url", "")
+            if not url:
+                return {"status": "skipped", "detail": "No webhook URL configured"}
+            try:
+                from services.service_prober import _assert_safe_target
+
+                _assert_safe_target(url)
+            except ValueError as exc:
+                return {"status": "skipped", "detail": f"Webhook URL rejected: {exc}"}
+
             payload = {
                 "event": event_type,
                 "rule": rule.get("name"),
@@ -158,7 +202,7 @@ async def _run_action(action: dict, event_type: str, entity: dict, rule: dict, c
                 "entity": entity,
             }
             async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.post(action.get("url", ""), json=payload)
+                resp = await client.post(url, json=payload, follow_redirects=False)
             ok = resp.status_code < 300
             return {"status": "success" if ok else "failed", "detail": f"POST → {resp.status_code}"}
 
@@ -234,11 +278,41 @@ def _matching_rules(event_type: str, entity: dict, context: dict) -> list[dict]:
     if not res.data:
         return []
 
+    # A project-less (global) rule may only fire for the projects owned by the
+    # rule's owner — otherwise one user's rules could act on another user's data.
+    project_owner_id = None
+    if project_id:
+        owner_res = supabase.table("projects").select("owner_id").eq("id", project_id).limit(1).execute()
+        if owner_res.data and owner_res.data[0].get("owner_id"):
+            project_owner_id = str(owner_res.data[0]["owner_id"])
+
     matching = []
     for rule in res.data:
         # Rule scoped to a project: skip if event is for a different project.
         if rule.get("project_id") and project_id and str(rule.get("project_id")) != str(project_id):
             continue
+        # Rule not scoped to a project: only fire for the owner's own projects.
+        if not rule.get("project_id"):
+            rule_owner = str(rule.get("owner_id") or "")
+            if rule_owner and project_owner_id != rule_owner:
+                continue
+        # Revocation consistency: the rule owner must still have access to the
+        # triggering project (owner or accepted member) at fire time, so a rule
+        # doesn't keep acting on a project they were removed from.
+        if project_id and rule.get("project_id"):
+            rule_owner = str(rule.get("owner_id") or "")
+            if rule_owner and str(rule_owner) != str(project_owner_id):
+                rel = (
+                    supabase.table("team_members")
+                    .select("id")
+                    .eq("project_id", project_id)
+                    .eq("user_id", str(rule_owner))
+                    .eq("status", "accepted")
+                    .limit(1)
+                    .execute()
+                )
+                if not rel.data:
+                    continue
         matching.append(rule)
     return matching
 

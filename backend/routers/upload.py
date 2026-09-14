@@ -132,13 +132,17 @@ async def upload_file(
 
     content_type = _validate_upload(file.content_type or "application/octet-stream", data)
 
-    # Loading onto another entity requires project membership
-    if comment_id and comment_type != "project":
+    # Loading an attachment requires an existing parent entity the user can
+    # access — fail-closed: uploads without a resolvable, membership-checked
+    # project are rejected (prevents cross-tenant/file-dump uploads).
+    if not comment_id or comment_type not in ("project", "incident", "deployment", "rollback"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Upload requires a comment on an accessible entity")
+    if comment_type == "project":
+        if comment_id not in get_user_project_ids(user_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    else:
         project_id = _attachment_project_id(comment_type, comment_id)
         if not project_id or project_id not in get_user_project_ids(user_id):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    elif comment_type == "project" and comment_id:
-        if comment_id not in get_user_project_ids(user_id):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     # Safe filename

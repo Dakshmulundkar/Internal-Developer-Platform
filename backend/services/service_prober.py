@@ -5,10 +5,13 @@ and generates real alerts and incidents in Supabase.
 """
 
 import asyncio
+import ipaddress
 import logging
+import socket
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -17,6 +20,84 @@ from services.incident_service import create_from_alert
 from validators import is_valid_uuid
 
 logger = logging.getLogger(__name__)
+
+DEMO_TARGET = "https://testing-brown-delta.vercel.app"
+
+
+def _reject_restricted_ip(ip, host: str) -> None:
+    """Block targets that resolve into local/private networks (SSRF guard)."""
+    if (
+        ip.is_loopback
+        or ip.is_link_local
+        or ip.is_private
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    ):
+        raise ValueError(f"Target resolves to a restricted address: {host} ({ip})")
+
+
+def _assert_safe_target(url: str) -> None:
+    """Validate a probe target so it cannot reach local services.
+
+    The hardcoded public demo target is allowlisted; everything else must use
+    http(s) and resolve to a public address.
+    """
+    normalized = url.rstrip("/")
+    if normalized == DEMO_TARGET:
+        return
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Unsupported target URL scheme: {parsed.scheme or 'none'}")
+
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if not host or host == "localhost" or host.endswith(".localhost"):
+        raise ValueError("Target host is not allowed")
+
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+
+    if ip is not None:
+        _reject_restricted_ip(ip, host)
+        return
+
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or 80)
+    except socket.gaierror:
+        raise ValueError("Target host could not be resolved")
+
+    for info in infos:
+        cand = info[4][0]
+        try:
+            ip = ipaddress.ip_address(cand)
+        except ValueError:
+            continue
+        _reject_restricted_ip(ip, host)
+
+
+async def _safe_get(client: httpx.AsyncClient, url: str, max_redirects: int = 3, **kwargs) -> httpx.Response:
+    """GET ``url`` without auto-following redirects into restricted networks.
+
+    ``_assert_safe_target`` validates the initial and every redirect hop so a
+    public URL that redirects to 127.0.0.1 / 169.254.169.254 / internal hosts is
+    rejected (SSRF prevention). DNS is re-asserted per hop at request time.
+    """
+    current = url
+    for _ in range(max_redirects + 1):
+        _assert_safe_target(current)
+        resp = await client.get(current, follow_redirects=False, **kwargs)
+        if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("location"):
+            next_url = resp.headers["location"]
+            try:
+                current = str(resp.url.join(next_url))
+            except Exception:
+                break
+            continue
+        return resp
+    raise ValueError("Too many redirects while probing target")
 
 
 def _resolve_project(project_id: str) -> Optional[dict]:
@@ -75,6 +156,7 @@ async def probe_project(project_id: str, custom_url: Optional[str] = None) -> Di
 
     target_base = custom_url or _get_project_target_url(project)
     target_base = target_base.rstrip("/")
+    _assert_safe_target(target_base)
 
     results: Dict[str, Any] = {
         "project_id": real_project_id,
@@ -89,7 +171,7 @@ async def probe_project(project_id: str, custom_url: Optional[str] = None) -> Di
         # 1. Health Probe
         health_start = time.time()
         try:
-            h_resp = await client.get(f"{target_base}/api/health", follow_redirects=True)
+            h_resp = await _safe_get(client, f"{target_base}/api/health")
             health_ms = int((time.time() - health_start) * 1000)
             results["endpoints"]["/api/health"] = {
                 "status_code": h_resp.status_code,
@@ -101,7 +183,7 @@ async def probe_project(project_id: str, custom_url: Optional[str] = None) -> Di
 
         # 2. Broken Endpoint Probe
         try:
-            b_resp = await client.get(f"{target_base}/api/broken", follow_redirects=True)
+            b_resp = await _safe_get(client, f"{target_base}/api/broken")
             b_data = b_resp.json() if b_resp.headers.get("content-type", "").startswith("application/json") else {"text": b_resp.text}
             results["endpoints"]["/api/broken"] = {
                 "status_code": b_resp.status_code,
@@ -134,7 +216,7 @@ async def probe_project(project_id: str, custom_url: Optional[str] = None) -> Di
 
         # 3. Grafana API probe
         try:
-            g_resp = await client.get(f"{target_base}/api/grafana", follow_redirects=True)
+            g_resp = await _safe_get(client, f"{target_base}/api/grafana")
             results["endpoints"]["/api/grafana"] = {
                 "status_code": g_resp.status_code,
                 "success": g_resp.status_code == 200,
@@ -153,6 +235,7 @@ async def trigger_test_event(project_id: str, test_type: str, custom_url: Option
     real_project_id = project["id"]
 
     target_base = (custom_url or _get_project_target_url(project)).rstrip("/")
+    _assert_safe_target(target_base)
 
     alert_row: Dict[str, Any] = {}
     should_create_incident = False
@@ -161,7 +244,7 @@ async def trigger_test_event(project_id: str, test_type: str, custom_url: Option
         if test_type in ("trigger_500", "500"):
             resp_detail = "DEMO_DATABASE_CONNECTION_REFUSED"
             try:
-                resp = await client.get(f"{target_base}/api/broken", follow_redirects=True)
+                resp = await _safe_get(client, f"{target_base}/api/broken")
                 if "application/json" in resp.headers.get("content-type", ""):
                     resp_detail = resp.json().get("message") or resp.json().get("detail") or "Internal Server Error"
                 else:
@@ -186,7 +269,7 @@ async def trigger_test_event(project_id: str, test_type: str, custom_url: Option
         elif test_type in ("slow_request", "slow"):
             start = time.time()
             try:
-                await client.get(f"{target_base}/api/slow", timeout=12.0, follow_redirects=True)
+                await _safe_get(client, f"{target_base}/api/slow", timeout=12.0)
                 dur = round(time.time() - start, 2)
             except Exception:
                 dur = 8.0
@@ -208,7 +291,7 @@ async def trigger_test_event(project_id: str, test_type: str, custom_url: Option
         elif test_type in ("error_storm", "storm"):
             failed = 5
             try:
-                tasks = [client.get(f"{target_base}/api/broken", follow_redirects=True) for _ in range(5)]
+                tasks = [_safe_get(client, f"{target_base}/api/broken") for _ in range(5)]
                 resps = await asyncio.gather(*tasks, return_exceptions=True)
                 failed = sum(1 for r in resps if not isinstance(r, Exception) and r.status_code >= 400) or 5
             except Exception:
@@ -230,7 +313,7 @@ async def trigger_test_event(project_id: str, test_type: str, custom_url: Option
 
         elif test_type in ("memory_waste", "memory"):
             try:
-                await client.get(f"{target_base}/api/memory", follow_redirects=True)
+                await _safe_get(client, f"{target_base}/api/memory")
             except Exception:
                 pass
 
@@ -250,7 +333,7 @@ async def trigger_test_event(project_id: str, test_type: str, custom_url: Option
 
         elif test_type in ("normal", "health"):
             try:
-                await client.get(f"{target_base}/api/health", follow_redirects=True)
+                await _safe_get(client, f"{target_base}/api/health")
             except Exception:
                 pass
 
@@ -271,7 +354,7 @@ async def trigger_test_event(project_id: str, test_type: str, custom_url: Option
         elif test_type in ("test_grafana_api", "grafana_api"):
             is_ok = True
             try:
-                resp = await client.get(f"{target_base}/api/grafana", follow_redirects=True)
+                resp = await _safe_get(client, f"{target_base}/api/grafana")
                 is_ok = resp.status_code == 200
             except Exception:
                 is_ok = False

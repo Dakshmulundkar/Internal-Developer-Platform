@@ -21,6 +21,18 @@ import {
   initialTeamMembers
 } from '../data/seedData';
 
+function storageGet(key: string): string | null {
+  try { return storageGet(key); } catch { return null; }
+}
+
+function storageSet(key: string, value: string): void {
+  try { storageSet(key, value); } catch { /* ignore */ }
+}
+
+function storageRemove(key: string): void {
+  try { storageRemove(key); } catch { /* ignore */ }
+}
+
 export type PageType = 
   | 'dashboard'
   | 'projects'
@@ -111,18 +123,18 @@ const PlatformContext = createContext<PlatformContextProps | undefined>(undefine
 export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // In API mode, wipe stale seed data from localStorage on startup so it never shows.
   // This runs once synchronously before any state is initialized.
-  if (import.meta.env.VITE_API_URL && !localStorage.getItem('idp_jwt')) {
+  if (import.meta.env.VITE_API_URL && !storageGet('idp_jwt')) {
     const seedKeys = [
       'idp_projects', 'idp_deployments', 'idp_incidents', 'idp_rollbacks',
       'idp_notifications', 'idp_audit', 'idp_plugins', 'idp_alerts',
     ];
-    seedKeys.forEach(k => localStorage.removeItem(k));
+    seedKeys.forEach(k => storageRemove(k));
   }
 
   // Helper: in API mode, always start empty (no seed data)
   // API mode includes both direct (VITE_API_URL) and proxy (VITE_USE_API) modes.
   const isApiMode = Boolean(import.meta.env.VITE_API_URL || import.meta.env.VITE_USE_API);
-  const hasJwt = Boolean(localStorage.getItem('idp_jwt'));
+  const hasJwt = Boolean(storageGet('idp_jwt'));
 
   // Load initial states from localStorage if available, else use seed data
   const [user, setUser] = useState<User | null>(() => {
@@ -131,31 +143,31 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const apiUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_USE_API;
     if (apiUrl) {
       // API mode — only restore if JWT exists and looks valid
-      const jwt = localStorage.getItem('idp_jwt');
+      const jwt = storageGet('idp_jwt');
       if (!jwt) return null; // No token → go to login
       // Basic JWT expiry check (decode payload, check exp)
       try {
         const payload = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
         if (payload.exp && payload.exp * 1000 < Date.now()) {
           // Token expired — clear and go to login
-          localStorage.removeItem('idp_jwt');
-          localStorage.removeItem('idp_user');
+          storageRemove('idp_jwt');
+          storageRemove('idp_user');
           return null;
         }
         // Token valid — restore user
-        const saved = localStorage.getItem('idp_user');
+        const saved = storageGet('idp_user');
         if (saved) {
           try { return JSON.parse(saved); } catch { return null; }
         }
         return null;
       } catch {
-        localStorage.removeItem('idp_jwt');
-        localStorage.removeItem('idp_user');
+        storageRemove('idp_jwt');
+        storageRemove('idp_user');
         return null;
       }
     }
     // Demo mode — restore from localStorage
-    const saved = localStorage.getItem('idp_user');
+    const saved = storageGet('idp_user');
     if (saved) {
       try { return JSON.parse(saved); } catch { /* ignore */ }
     }
@@ -163,56 +175,64 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   });
 
   const [projects, setProjects] = useState<Project[]>(() => {
-    const saved = localStorage.getItem('idp_projects');
+    const saved = storageGet('idp_projects');
     if (isApiMode) return saved ? JSON.parse(saved) : [];
     return saved ? JSON.parse(saved) : initialProjects;
   });
 
   const [deployments, setDeployments] = useState<Deployment[]>(() => {
-    const saved = localStorage.getItem('idp_deployments');
-    if (isApiMode) return saved ? JSON.parse(saved) : [];
-    return saved ? JSON.parse(saved) : initialDeployments;
+    const saved = storageGet('idp_deployments');
+    // Demo mode: never boot with an empty (or stale-cleared) pipeline — fall
+    // back to the seeded builds so the Pipeline Center always has stats.
+    if (!isApiMode) {
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      return initialDeployments;
+    }
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [incidents, setIncidents] = useState<Incident[]>(() => {
-    const saved = localStorage.getItem('idp_incidents');
+    const saved = storageGet('idp_incidents');
     if (isApiMode) return saved ? JSON.parse(saved) : [];
     return saved ? JSON.parse(saved) : initialIncidents;
   });
 
   const [securityIncidents, setSecurityIncidents] = useState<Incident[]>(() => {
-    const saved = localStorage.getItem('idp_security_incidents');
+    const saved = storageGet('idp_security_incidents');
     if (isApiMode) return saved ? JSON.parse(saved) : [];
     if (saved) return JSON.parse(saved);
     return initialIncidents.filter(i => i.source === 'security_triage');
   });
 
   const [rollbackOperations, setRollbackOperations] = useState<RollbackOperation[]>(() => {
-    const saved = localStorage.getItem('idp_rollbacks');
+    const saved = storageGet('idp_rollbacks');
     if (isApiMode) return saved ? JSON.parse(saved) : [];
     return saved ? JSON.parse(saved) : initialRollbackOperations;
   });
 
   const [notifications, setNotifications] = useState<Notification[]>(() => {
-    const saved = localStorage.getItem('idp_notifications');
+    const saved = storageGet('idp_notifications');
     if (isApiMode) return saved ? JSON.parse(saved) : [];
     return saved ? JSON.parse(saved) : initialNotifications;
   });
 
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => {
-    const saved = localStorage.getItem('idp_audit');
+    const saved = storageGet('idp_audit');
     if (isApiMode) return saved ? JSON.parse(saved) : [];
     return saved ? JSON.parse(saved) : initialAuditLogs;
   });
 
   const [pluginInstallations, setPluginInstallations] = useState<PluginInstallation[]>(() => {
-    const saved = localStorage.getItem('idp_plugins');
+    const saved = storageGet('idp_plugins');
     if (isApiMode) return saved ? JSON.parse(saved) : [];
     return saved ? JSON.parse(saved) : initialPluginInstallations;
   });
 
   const [monitoringAlerts, setMonitoringAlerts] = useState<MonitoringAlert[]>(() => {
-    const saved = localStorage.getItem('idp_alerts');
+    const saved = storageGet('idp_alerts');
     if (isApiMode) return saved ? JSON.parse(saved) : [];
     return saved ? JSON.parse(saved) : initialMonitoringAlerts;
   });
@@ -220,7 +240,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [sentryIssues] = useState<SentryIssue[]>(() => isApiMode ? [] : initialSentryIssues);
 
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>(() => {
-    const saved = localStorage.getItem('idp_team');
+    const saved = storageGet('idp_team');
     return saved ? JSON.parse(saved) : initialTeamMembers;
   });
 
@@ -230,9 +250,9 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Navigation Context
   const [currentPage, setCurrentPage] = useState<PageType>(() => {
     // Determine if we have a valid session synchronously, without async work
-    const jwt = localStorage.getItem('idp_jwt');
+    const jwt = storageGet('idp_jwt');
     const apiUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_USE_API;
-    const savedPage = localStorage.getItem('idp_page') as PageType;
+    const savedPage = storageGet('idp_page') as PageType;
 
     // Validate the saved page is a real page, not 'login'
     const isValidPage = (p: string | null): p is PageType =>
@@ -251,7 +271,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return 'login';
     }
     // Demo mode: restore if saved user exists
-    const savedUser = localStorage.getItem('idp_user');
+    const savedUser = storageGet('idp_user');
     if (savedUser && savedUser !== 'null') {
       return isValidPage(savedPage) ? savedPage : 'dashboard';
     }
@@ -259,19 +279,19 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   });
 
   const [activeProjectId, setActiveProjectId] = useState<string | null>(() => {
-    return localStorage.getItem('idp_active_project');
+    return storageGet('idp_active_project');
   });
 
   const [activeDeploymentId, setActiveDeploymentId] = useState<string | null>(() => {
-    return localStorage.getItem('idp_active_deploy');
+    return storageGet('idp_active_deploy');
   });
 
   const [activeIncidentId, setActiveIncidentId] = useState<string | null>(() => {
-    return localStorage.getItem('idp_active_incident');
+    return storageGet('idp_active_incident');
   });
 
   const [activePluginId, setActivePluginId] = useState<string | null>(() => {
-    return localStorage.getItem('idp_active_plugin');
+    return storageGet('idp_active_plugin');
   });
 
   // WebSocket ref for real-time updates
@@ -285,18 +305,18 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Replaces 9 individual effects. Prevents 9x localStorage writes on every state change.
   useEffect(() => {
     const t = setTimeout(() => {
-      localStorage.setItem('idp_user', JSON.stringify(user));
-      localStorage.setItem('idp_projects', JSON.stringify(projects));
-      localStorage.setItem('idp_deployments', JSON.stringify(deployments));
-      localStorage.setItem('idp_incidents', JSON.stringify(incidents));
-      localStorage.setItem('idp_security_incidents', JSON.stringify(securityIncidents));
-      localStorage.setItem('idp_rollbacks', JSON.stringify(rollbackOperations));
-      localStorage.setItem('idp_notifications', JSON.stringify(notifications));
-      localStorage.setItem('idp_audit', JSON.stringify(auditLogs));
-      localStorage.setItem('idp_plugins', JSON.stringify(pluginInstallations));
-      localStorage.setItem('idp_alerts', JSON.stringify(monitoringAlerts));
-      localStorage.setItem('idp_team', JSON.stringify(teamMembers));
-      localStorage.setItem('idp_page', currentPage);
+      storageSet('idp_user', JSON.stringify(user));
+      storageSet('idp_projects', JSON.stringify(projects));
+      storageSet('idp_deployments', JSON.stringify(deployments));
+      storageSet('idp_incidents', JSON.stringify(incidents));
+      storageSet('idp_security_incidents', JSON.stringify(securityIncidents));
+      storageSet('idp_rollbacks', JSON.stringify(rollbackOperations));
+      storageSet('idp_notifications', JSON.stringify(notifications));
+      storageSet('idp_audit', JSON.stringify(auditLogs));
+      storageSet('idp_plugins', JSON.stringify(pluginInstallations));
+      storageSet('idp_alerts', JSON.stringify(monitoringAlerts));
+      storageSet('idp_team', JSON.stringify(teamMembers));
+      storageSet('idp_page', currentPage);
     }, 500); // debounce: only write after 500ms of no changes
     return () => clearTimeout(t);
   }, [user, projects, deployments, incidents, securityIncidents, rollbackOperations, notifications, auditLogs, pluginInstallations, monitoringAlerts, teamMembers, currentPage]);
@@ -312,7 +332,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!user && currentPage !== 'login' && isApiMode) {
       // Small delay to allow async JWT check to complete before redirecting
       const t = setTimeout(() => {
-        if (!localStorage.getItem('idp_jwt')) {
+        if (!storageGet('idp_jwt')) {
           setCurrentPage('login');
         }
       }, 100);
@@ -563,7 +583,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     if (!isApiAvailable() || !user) return;
     // Clear any stale localStorage before loading from API
-    ['idp_projects','idp_incidents','idp_notifications','idp_deployments','idp_plugins','idp_alerts','idp_audit','idp_team'].forEach(k => localStorage.removeItem(k));
+    ['idp_projects','idp_incidents','idp_notifications','idp_deployments','idp_plugins','idp_alerts','idp_audit','idp_team'].forEach(k => storageRemove(k));
     // Defer initial load by one tick so the dashboard shell renders first,
     // giving the user immediate visual feedback before data arrives.
     const initialLoad = setTimeout(() => {
@@ -607,19 +627,19 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     if (contextIds?.projectId) {
       setActiveProjectId(contextIds.projectId);
-      localStorage.setItem('idp_active_project', contextIds.projectId);
+      storageSet('idp_active_project', contextIds.projectId);
     }
     if (contextIds?.deploymentId) {
       setActiveDeploymentId(contextIds.deploymentId);
-      localStorage.setItem('idp_active_deploy', contextIds.deploymentId);
+      storageSet('idp_active_deploy', contextIds.deploymentId);
     }
     if (contextIds?.incidentId) {
       setActiveIncidentId(contextIds.incidentId);
-      localStorage.setItem('idp_active_incident', contextIds.incidentId);
+      storageSet('idp_active_incident', contextIds.incidentId);
     }
     if (contextIds?.pluginId) {
       setActivePluginId(contextIds.pluginId);
-      localStorage.setItem('idp_active_plugin', contextIds.pluginId);
+      storageSet('idp_active_plugin', contextIds.pluginId);
     }
     
     setCurrentPage(page);
@@ -644,7 +664,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       wsReconnectTimeoutRef.current = null;
     }
 
-    const ws = new WebSocket(`${wsUrl}/ws/${userId}?token=${encodeURIComponent(localStorage.getItem('idp_jwt') || '')}`);
+    const ws = new WebSocket(`${wsUrl}/ws/${userId}?token=${encodeURIComponent(storageGet('idp_jwt') || '')}`);
     wsRef.current = ws;
 
     ws.onmessage = (event) => {
@@ -793,7 +813,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             connectedNetlify: false,
           };
 
-          localStorage.setItem('idp_jwt', jwt);
+          storageSet('idp_jwt', jwt);
           setUser(oauthUser);
 
           setAuditLogs(prev => [{
@@ -827,7 +847,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             connectedVercel: false,
             connectedNetlify: false,
           };
-          localStorage.setItem('idp_jwt', ghResult.access_token);
+          storageSet('idp_jwt', ghResult.access_token);
           setUser(apiUser);
 
           try {
@@ -873,8 +893,8 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // Email + password login
         const result = await api.auth.login(email, passwordOrProvider || '');
         const token = result.access_token;
-        localStorage.setItem('idp_jwt', token);
-        if (result.refresh_token) localStorage.setItem('idp_refresh_token', result.refresh_token);
+        storageSet('idp_jwt', token);
+        if (result.refresh_token) storageSet('idp_refresh_token', result.refresh_token);
 
         const payloadB64 = token.split('.')[1];
         const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
@@ -963,15 +983,15 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     // Clear JWT
-    localStorage.removeItem('idp_jwt');
-    localStorage.removeItem('idp_refresh_token');
+    storageRemove('idp_jwt');
+    storageRemove('idp_refresh_token');
 
     setUser(null);
     setCurrentPage('login');
-    localStorage.removeItem('idp_user');
-    localStorage.removeItem('idp_active_project');
-    localStorage.removeItem('idp_active_deploy');
-    localStorage.removeItem('idp_active_incident');
+    storageRemove('idp_user');
+    storageRemove('idp_active_project');
+    storageRemove('idp_active_deploy');
+    storageRemove('idp_active_incident');
   };
 
   const updateUserConnections = (connections: { github?: string; vercel?: boolean; netlify?: boolean }) => {

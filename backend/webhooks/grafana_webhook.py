@@ -65,7 +65,16 @@ async def grafana_webhook(request: Request, background_tasks: BackgroundTasks) -
 
     # HMAC-SHA256 signature verification (matches the pattern used by the
     # Vercel, Netlify, and GitHub security triage webhooks).
-    if settings.GRAFANA_WEBHOOK_SECRET:
+    if not settings.GRAFANA_WEBHOOK_SECRET:
+        if settings.ENVIRONMENT == "production":
+            logger.error(
+                "GRAFANA_WEBHOOK_SECRET not configured — refusing webhook in production"
+            )
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Webhook not configured")
+        logger.warning(
+            "GRAFANA_WEBHOOK_SECRET not configured — webhook signature verification disabled (dev only)"
+        )
+    else:
         signature = request.headers.get("x-webhook-secret", "")
         expected = "sha256=" + hmac.new(
             settings.GRAFANA_WEBHOOK_SECRET.encode(),

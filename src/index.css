@@ -78,3 +78,13 @@ select option:checked {
   background-color: #1f1f1f;
   color: #ffffff;
 }
+
+/* Respect reduced-motion preferences — neutralize decorative animation */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

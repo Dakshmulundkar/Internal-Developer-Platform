@@ -11,6 +11,7 @@ from config import settings
 from database import supabase
 from dependencies import get_current_user, get_user_project_ids
 from pydantic import BaseModel
+from rate_limit import rate_limit
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -23,6 +24,28 @@ _SCHEMA_CACHE_WIKI = (
     "schema cache is stale. Reload it via Supabase Dashboard → Settings → API → "
     "'Reload schema cache', then retry the invite."
 )
+
+# Directory scans use the Auth Admin API (auth.users is not exposed under the
+# public schema). Paginate with an explicit cap so a single request can never
+# pull the entire user database (perf + user-directory enumeration exposure).
+_DIRECTORY_PAGE_SIZE = 200
+_DIRECTORY_MAX_PAGES = 5  # ≤ 1000 users scanned per request
+
+
+def _iter_user_pages(page_size: int = _DIRECTORY_PAGE_SIZE, max_pages: int = _DIRECTORY_MAX_PAGES):
+    """Yield User objects page-by-page from the Auth Admin API (early exit on short pages)."""
+    for page in range(1, max_pages + 1):
+        try:
+            users = supabase.auth.admin.list_users(page=page, per_page=page_size)
+        except Exception as exc:
+            logger.warning("[Team] list_users page %d failed: %s", page, exc)
+            return
+        if not users:
+            return
+        for u in users:
+            yield u
+        if len(users) < page_size:
+            return
 
 
 class TeamMemberAdd(BaseModel):
@@ -167,9 +190,7 @@ async def add_team_member(body: TeamMemberAdd, current_user=Depends(get_current_
     member_name: str = body.name or body.email.split("@")[0]
 
     try:
-        admin_res = supabase.auth.admin.list_users()
-        users = admin_res if isinstance(admin_res, list) else getattr(admin_res, "users", [])
-        matched = [u for u in users if getattr(u, "email", "") == body.email]
+        matched = [u for u in _iter_user_pages() if (getattr(u, "email", "") or "").lower() == body.email.lower()]
         if matched:
             target_user_id = str(matched[0].id)
             meta = getattr(matched[0], "user_metadata", {}) or {}
@@ -530,16 +551,21 @@ async def remove_team_member(member_id: str, current_user=Depends(get_current_us
 
 
 @router.get("/search")
-async def search_users(q: str = Query("", min_length=1), current_user=Depends(get_current_user)):
+async def search_users(
+    q: str = Query("", min_length=1),
+    _rate=Depends(rate_limit(30, 60)),
+    current_user=Depends(get_current_user),
+):
     """Search users by email or name for @mention autocomplete.
 
-    Uses the Auth Admin API (service role) — `auth.users` is NOT exposed to
-    PostgREST under the public schema (a raw `supabase.table("auth.users")` query
-    fails with PGRST205).
+    Uses the Auth Admin API (service role) with a bounded page-by-page scan —
+    `auth.users` is NOT exposed to PostgREST under the public schema (a raw
+    `supabase.table("auth.users")` query fails with PGRST205). Pagination caps
+    the scan (no full-directory dumps) and the endpoint is rate limited for the
+    same reason.
     """
     try:
-        admin_res = supabase.auth.admin.list_users()
-        users = admin_res if isinstance(admin_res, list) else getattr(admin_res, "users", [])
+        users = list(_iter_user_pages())
     except Exception as exc:
         logger.warning("[Team] user search (admin.list_users) failed: %s", exc)
         return []

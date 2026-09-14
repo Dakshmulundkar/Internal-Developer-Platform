@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     # ── CORS ──────────────────────────────────────────────────────────────────
     CORS_ORIGINS: str = "http://localhost:5173"
 
+    # ── Event intake (external test runners / telemetry POST /monitoring/events) ─
+    # Set a long random token in .env to allow unauthenticated event ingestion.
+    # Without this, anonymous callers are rejected (fail-closed).
+    EVENT_INTAKE_TOKEN: str = ""
+
     # ── Logging / runtime ─────────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
     ENVIRONMENT: str = "development"

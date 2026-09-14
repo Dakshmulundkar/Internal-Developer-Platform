@@ -38,6 +38,16 @@ def _store_identity(token: str, user) -> None:
     _identity_cache[token] = (time.monotonic(), user)
 
 
+# ── Short-TTL project-access cache ──────────────────────────────────────────
+# get_user_project_ids() fires two Supabase queries on every protected request.
+# Membership changes (invites, accepts, ownership transfer) are rare, so a 10s
+# TTL is imperceptible to users while removing ~2 network round trips from each
+# authorized request across all routers. Rejection eventually-correct: a revoked
+# membership is re-checked once the entry ages out.
+_PROJECT_IDS_CACHE_TTL = 10.0
+_project_ids_cache: dict[str, tuple[float, list[str]]] = {}
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer),
 ):
@@ -79,14 +89,28 @@ _optional_bearer = HTTPBearer(auto_error=False)
 async def get_optional_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(_optional_bearer),
 ):
-    """Optionally extract user if Bearer token is provided, otherwise return None."""
+    """Optionally extract user if Bearer token is provided, otherwise return None.
+
+    Uses the same 30s identity cache as get_current_user so optional-auth
+    endpoints don't add a Supabase round trip on every call.
+    """
     if not credentials or not credentials.credentials:
         return None
+    token = credentials.credentials
+
+    cached = _cached_identity(token)
+    if cached is not None:
+        return cached
+
     try:
-        response = supabase.auth.get_user(credentials.credentials)
-        return response.user
+        response = supabase.auth.get_user(token)
+        user = response.user
     except Exception:
         return None
+
+    if user is not None:
+        _store_identity(token, user)
+    return user
 
 
 def get_user_project_ids(user_id: str) -> list[str]:
@@ -95,7 +119,14 @@ def get_user_project_ids(user_id: str) -> list[str]:
     A user can access a project when they own it OR when they are an ACCEPTED
     member of that project's team (RBAC). Invitees who haven't accepted yet
     don't get project access — data visibility starts on acceptance.
+
+    Results are cached per user for _PROJECT_IDS_CACHE_TTL seconds to avoid
+    two Supabase round trips on every authorized request.
     """
+    cached = _project_ids_cache.get(user_id)
+    if cached and (time.monotonic() - cached[0]) < _PROJECT_IDS_CACHE_TTL:
+        return cached[1]
+
     owner_res = (
         supabase.table("projects")
         .select("id")
@@ -111,4 +142,9 @@ def get_user_project_ids(user_id: str) -> list[str]:
     )
     project_ids = [r["id"] for r in (owner_res.data or [])]
     project_ids += [r["project_id"] for r in (member_res.data or [])]
-    return list(dict.fromkeys(project_ids))  # dedupe, preserve order
+    project_ids = list(dict.fromkeys(project_ids))  # dedupe, preserve order
+
+    if len(_project_ids_cache) > 4096:
+        _project_ids_cache.clear()
+    _project_ids_cache[user_id] = (time.monotonic(), project_ids)
+    return project_ids

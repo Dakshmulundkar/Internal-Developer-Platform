@@ -22,10 +22,87 @@ from config import settings
 from database import get_auth_client, supabase
 from dependencies import get_current_user
 from models.user import GithubLoginRequest, LoginRequest, RefreshRequest, RegisterRequest, UserResponse
+from rate_limit import rate_limit
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_LOGIN_LIMIT = rate_limit(max_requests=20, window_seconds=60)
+_REGISTER_LIMIT = rate_limit(max_requests=10, window_seconds=60)
+_REFRESH_LIMIT = rate_limit(max_requests=120, window_seconds=60)
+_GITHUB_LIMIT = rate_limit(max_requests=15, window_seconds=60)
+# /github/oauth + /github/callback are unauthenticated and do heavy work
+# (OAuth exchange, user creation, plugin install) — cap them too.
+_GITHUB_OAUTH_LIMIT = rate_limit(max_requests=30, window_seconds=60)
+
+
+def _no_cache_redirect(url: str) -> RedirectResponse:
+    """Redirect that instructs browsers/proxies not to cache the response.
+
+    Auth callbacks carry a JWT in the URL fragment — no-store keeps it out of
+    browser/proxy disk and history caches.
+    """
+    return RedirectResponse(url=url, headers={"Cache-Control": "no-store"})
+
+
+def _find_or_create_supabase_user(
+    admin_client, email: str, derived_password: str, user_metadata: dict
+) -> str:
+    """Resolve a Supabase user id for ``email``, creating or re-keying as needed.
+
+    Fast path: sign in with the deterministic server-derived password (one
+    lightweight auth call). This is correct whenever the account was created by
+    this flow, which is the overwhelmingly common case.
+
+    Slow paths only run for brand-new accounts or accounts whose password was
+    set outside this scheme (e.g. email/password registration):
+      1. ``create_user`` — atomic; Supabase rejects duplicate emails.
+      2. Duplicate-email blind spot (account exists but password isn't
+         derivable): fall back to a single admin user listing to recover its
+         id and re-key the password.
+
+    This replaces the previous full ``admin.list_users()`` dump on every GitHub
+    login, which was O(all users) and leaked every account's email into
+    memory/server logs. The listing is now bounded to a rare edge case.
+
+    Returns the user id on success; raises on failure.
+    """
+    try:
+        session = get_auth_client().auth.sign_in_with_password(
+            {"email": email, "password": derived_password}
+        )
+        if session.user is not None:
+            admin_client.auth.admin.update_user_by_id(str(session.user.id), {
+                "user_metadata": user_metadata,
+                "password": derived_password,
+            })
+            return str(session.user.id)
+    except Exception as exc:
+        logger.debug("Sign-in fast path missed for %s: %s", email, exc)
+
+    try:
+        created = admin_client.auth.admin.create_user({
+            "email": email,
+            "password": derived_password,
+            "email_confirm": True,
+            "user_metadata": user_metadata,
+        })
+        return str(created.id)
+    except Exception as exc:
+        if "already" not in str(exc).lower():
+            raise
+
+    # Duplicate email → account exists with a non-derivable password.
+    users = admin_client.auth.admin.list_users()
+    existing_user = next((u for u in users if u.email == email), None)
+    if existing_user is None:
+        raise exc
+    admin_client.auth.admin.update_user_by_id(str(existing_user.id), {
+        "user_metadata": user_metadata,
+        "password": derived_password,
+    })
+    return str(existing_user.id)
 
 
 def _build_user_response(user) -> UserResponse:
@@ -40,7 +117,7 @@ def _build_user_response(user) -> UserResponse:
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register(body: RegisterRequest) -> dict:
+async def register(body: RegisterRequest, _: None = Depends(_REGISTER_LIMIT)) -> dict:
     """Create a new user account.
 
     Returns the created user object and an access token.
@@ -61,7 +138,7 @@ async def register(body: RegisterRequest) -> dict:
         logger.error("Registration failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
+            detail="Registration failed. Please check your details and try again.",
         ) from exc
 
     if response.user is None:
@@ -81,7 +158,7 @@ async def register(body: RegisterRequest) -> dict:
 
 
 @router.post("/login")
-async def login(body: LoginRequest) -> dict:
+async def login(body: LoginRequest, _: None = Depends(_LOGIN_LIMIT)) -> dict:
     """Sign in with email and password.
 
     Returns the user, access_token, and refresh_token on success.
@@ -113,7 +190,7 @@ async def login(body: LoginRequest) -> dict:
 
 
 @router.get("/github/oauth")
-async def github_oauth_redirect() -> RedirectResponse:
+async def github_oauth_redirect(_: None = Depends(_GITHUB_OAUTH_LIMIT)) -> RedirectResponse:
     """Redirect the user to GitHub's OAuth authorization page.
 
     The frontend opens this URL (or redirects to it).
@@ -134,7 +211,10 @@ async def github_oauth_redirect() -> RedirectResponse:
 
 
 @router.get("/github/callback")
-async def github_oauth_callback(code: str = Query(...)) -> RedirectResponse:
+async def github_oauth_callback(
+    code: str = Query(...),
+    _: None = Depends(_GITHUB_OAUTH_LIMIT),
+) -> RedirectResponse:
     """Handle the OAuth callback from GitHub.
 
     Flow:
@@ -164,8 +244,10 @@ async def github_oauth_callback(code: str = Query(...)) -> RedirectResponse:
         token_data = token_resp.json()
         gh_access_token: str = token_data.get("access_token", "")
         if not gh_access_token:
-            error = token_data.get("error_description", "GitHub token exchange failed")
-            return RedirectResponse(url=f"{settings.APP_FRONTEND_URL}/?github_error={urllib.parse.quote(error)}")
+            error = token_data.get("error_description", "GitHub token exchange failed")[:120]
+            return _no_cache_redirect(
+                url=f"{settings.APP_FRONTEND_URL}/?github_error={urllib.parse.quote(error)}"
+            )
 
         # Step 2: Fetch user profile
         gh_headers = {
@@ -198,7 +280,9 @@ async def github_oauth_callback(code: str = Query(...)) -> RedirectResponse:
 
     # Step 4: Create or update Supabase user
     if not settings.SUPABASE_SERVICE_KEY:
-        return RedirectResponse(url=f"{settings.APP_FRONTEND_URL}/?github_error=SUPABASE_SERVICE_KEY+not+configured")
+        return _no_cache_redirect(
+            url=f"{settings.APP_FRONTEND_URL}/?github_error=SUPABASE_SERVICE_KEY+not+configured"
+        )
 
     from supabase import create_client
     admin_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
@@ -206,12 +290,6 @@ async def github_oauth_callback(code: str = Query(...)) -> RedirectResponse:
     derived_password = hashlib.sha256(
         f"idp-gh-oauth-{gh_access_token[:20]}-{email}".encode()
     ).hexdigest()
-
-    try:
-        existing_users = admin_client.auth.admin.list_users()
-        existing_user = next((u for u in existing_users if u.email == email), None)
-    except Exception:
-        existing_user = None
 
     user_metadata = {
         "name": display_name,
@@ -222,25 +300,15 @@ async def github_oauth_callback(code: str = Query(...)) -> RedirectResponse:
         "github_access_token": gh_access_token,  # stored server-side for repo access
     }
 
-    if existing_user is None:
-        try:
-            admin_client.auth.admin.create_user({
-                "email": email,
-                "password": derived_password,
-                "email_confirm": True,
-                "user_metadata": user_metadata,
-            })
-        except Exception as exc:
-            logger.error("Failed to create Supabase user: %s", exc)
-            return RedirectResponse(url=f"{settings.APP_FRONTEND_URL}/?github_error={urllib.parse.quote(str(exc))}")
-    else:
-        try:
-            admin_client.auth.admin.update_user_by_id(str(existing_user.id), {
-                "user_metadata": user_metadata,
-                "password": derived_password,
-            })
-        except Exception:
-            pass
+    try:
+        user_id = _find_or_create_supabase_user(
+            admin_client, email, derived_password, user_metadata
+        )
+    except Exception as exc:
+        logger.error("Failed to create/resolve Supabase user: %s", exc)
+        return _no_cache_redirect(
+            url=f"{settings.APP_FRONTEND_URL}/?github_error=GitHub+sign-in+failed"
+        )
 
     # Sign in to get a Supabase JWT
     try:
@@ -249,10 +317,11 @@ async def github_oauth_callback(code: str = Query(...)) -> RedirectResponse:
             "password": derived_password,
         })
         jwt = session_resp.session.access_token if session_resp.session else ""
-        user_id = str(session_resp.user.id) if session_resp.user else ""
     except Exception as exc:
         logger.error("Supabase sign-in failed after GitHub OAuth: %s", exc)
-        return RedirectResponse(url=f"{settings.APP_FRONTEND_URL}/?github_error={urllib.parse.quote(str(exc))}")
+        return _no_cache_redirect(
+            url=f"{settings.APP_FRONTEND_URL}/?github_error=GitHub+sign-in+failed"
+        )
 
     # Auto-install GitHub plugin in Supabase (best-effort)
     if user_id:
@@ -295,11 +364,11 @@ async def github_oauth_callback(code: str = Query(...)) -> RedirectResponse:
         # callback. Passing it through the redirect URL would expose it to
         # browser history, Referer headers, and server access logs.
     })
-    return RedirectResponse(url=f"{settings.APP_FRONTEND_URL}/#/auth/github/success?{params}")
+    return _no_cache_redirect(url=f"{settings.APP_FRONTEND_URL}/#/auth/github/success?{params}")
 
 
 @router.post("/github")
-async def github_login(body: GithubLoginRequest) -> dict:
+async def github_login(body: GithubLoginRequest, _: None = Depends(_GITHUB_LIMIT)) -> dict:
     """Sign in using a GitHub Personal Access Token (legacy — kept for compatibility).
 
     Flow:
@@ -373,57 +442,29 @@ async def github_login(body: GithubLoginRequest) -> dict:
     from supabase import create_client
     admin_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
 
-    # Try to get existing user by email
-    try:
-        existing = admin_client.auth.admin.list_users()
-        existing_user = next(
-            (u for u in existing if u.email == email), None
-        )
-    except Exception:
-        existing_user = None
-
     # Use a deterministic password derived from the PAT so we can sign in again
     # This is safe — it's never exposed to the user, only used server-side
-    import hashlib
     derived_password = hashlib.sha256(
         f"idp-gh-{body.token}-{email}".encode()
     ).hexdigest()
 
-    if existing_user is None:
-        try:
-            admin_client.auth.admin.create_user({
-                "email": email,
-                "password": derived_password,
-                "email_confirm": True,
-                "user_metadata": {
-                    "name": display_name,
-                    "user_name": github_username,
-                    "avatar_url": avatar_url,
-                    "provider": "github",
-                    "role": "admin",
-                },
-            })
-        except Exception as exc:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to create user in Supabase: {exc}",
-            ) from exc
-    else:
-        # Update metadata with latest GitHub info
-        try:
-            admin_client.auth.admin.update_user_by_id(str(existing_user.id), {
-                "user_metadata": {
-                    "name": display_name,
-                    "user_name": github_username,
-                    "avatar_url": avatar_url,
-                    "provider": "github",
-                    "role": "admin",
-                },
-                # Keep password in sync so sign-in always works
-                "password": derived_password,
-            })
-        except Exception:
-            pass
+    user_metadata = {
+        "name": display_name,
+        "user_name": github_username,
+        "avatar_url": avatar_url,
+        "provider": "github",
+        "role": "admin",
+    }
+
+    try:
+        user_id = _find_or_create_supabase_user(
+            admin_client, email, derived_password, user_metadata
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create user account. Please try again.",
+        ) from exc
 
     # Step 4: Sign in with password to get a real Supabase JWT session
     try:
@@ -432,11 +473,10 @@ async def github_login(body: GithubLoginRequest) -> dict:
             "password": derived_password,
         })
         access_token = session_resp.session.access_token if session_resp.session else None
-        user_id = str(session_resp.user.id) if session_resp.user else email
+        user_id = str(session_resp.user.id) if session_resp.user else user_id
     except Exception as exc:
         logger.error("GitHub sign-in session failed: %s", exc)
         access_token = None
-        user_id = str(existing_user.id) if existing_user else email
 
     return {
         "user": {
@@ -544,7 +584,7 @@ async def github_setup(body: GithubLoginRequest, current_user=Depends(get_curren
 
 
 @router.post("/refresh")
-async def refresh(body: RefreshRequest) -> dict:
+async def refresh(body: RefreshRequest, _: None = Depends(_REFRESH_LIMIT)) -> dict:
     """Exchange a refresh token for a fresh access token.
 
     Access tokens expire (default 1 hour); the client keeps the refresh_token

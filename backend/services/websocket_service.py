@@ -45,6 +45,7 @@ async def broadcast_to_project(project_id: str, event_type: str, data: dict) -> 
             supabase.table("team_members")
             .select("user_id")
             .eq("project_id", project_id)
+            .eq("status", "accepted")
             .execute()
         )
         for member in members.data or []:

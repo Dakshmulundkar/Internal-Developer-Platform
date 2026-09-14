@@ -146,7 +146,7 @@ async def list_plugins(current_user=Depends(get_current_user)):
         return [_format_plugin_record(r) for r in data]
     except Exception as exc:
         logger.error("list_plugins failed: %s", exc)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to load plugins") from exc
 
 
 @router.patch("/{installation_id}", summary="Update plugin configuration")
@@ -220,7 +220,7 @@ async def update_plugin(
         return _format_plugin_record(record)
     except Exception as exc:
         logger.error("update_plugin failed: %s", exc)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update plugin configuration") from exc
 
 
 @router.post("", summary="Create a plugin installation")
@@ -257,7 +257,7 @@ async def create_plugin(
         return _format_plugin_record(record)
     except Exception as exc:
         logger.error("create_plugin failed: %s", exc)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create plugin installation") from exc
 
 
 @router.post("/test", summary="Test plugin connection server-side")
@@ -300,6 +300,17 @@ async def test_plugin_connection(
 
     outcome: dict = {"success": True, "message": f"Plugin configuration for {plugin_id or 'service'} validated."}
 
+    from services.service_prober import _assert_safe_target
+
+    def _assert_endpoint(url: str) -> None:
+        """Reject plugin test targets that resolve to restricted networks (SSRF)."""
+        if not url:
+            return
+        try:
+            _assert_safe_target(url)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     async with httpx.AsyncClient(timeout=12.0) as client:
         # 1. Vercel
         if plugin_id == "vercel":
@@ -315,7 +326,8 @@ async def test_plugin_connection(
 
                 target_endpoint = f"https://{clean_name}.vercel.app" if clean_name else (base_url or "https://testing-brown-delta.vercel.app")
                 try:
-                    resp = await client.get(target_endpoint, follow_redirects=True)
+                    _assert_endpoint(target_endpoint)
+                    resp = await client.get(target_endpoint, follow_redirects=False)
                     if resp.status_code < 500:
                         outcome = {
                             "success": True,
@@ -359,6 +371,7 @@ async def test_plugin_connection(
             if token and "••••" not in token:
                 headers["Authorization"] = f"Bearer {token}"
             try:
+                _assert_endpoint(url)
                 resp = await client.get(f"{url.rstrip('/')}/api/health", headers=headers)
                 outcome = {
                     "success": True,
@@ -397,7 +410,8 @@ async def test_plugin_connection(
         # 5. Generic HTTP base_url test
         elif base_url:
             try:
-                resp = await client.get(base_url, follow_redirects=True)
+                _assert_endpoint(base_url)
+                resp = await client.get(base_url, follow_redirects=False)
                 outcome = {"success": True, "message": f"Successfully connected to {base_url} (HTTP {resp.status_code})"}
             except Exception as exc:
                 outcome = {"success": False, "message": f"Connection failed to {base_url}: {exc}"}

@@ -60,6 +60,13 @@ async def execute_rollback(project_id: str, target_deployment_id: str, user_id: 
         else:
             raise ValueError(f"Could not resolve or record deployment {target_deployment_id}")
 
+    # Tenant-isolation guard: the target deployment MUST belong to the project
+    # the caller is operating on. A bare id / external_event_id / version lookup
+    # above can match a row in a different tenant's project, so verify it here
+    # before issuing any provider call or writing a rollback row.
+    if str(deployment.get("project_id") or "") != project_id:
+        raise ValueError(f"Deployment {target_deployment_id} does not belong to project {project_id}")
+
     real_deployment_uuid = deployment["id"]
     provider_deployment_id = deployment.get("external_event_id") or deployment.get("version") or target_deployment_id
     target_version = deployment.get("version") or provider_deployment_id
@@ -176,7 +183,7 @@ async def poll_rollback_status(rollback_id: str) -> None:
                         if provider == "vercel" and project.get("vercel_project_id"):
                             token = getattr(settings, "VERCEL_API_TOKEN", "") or ""
                             if not token:
-                                pi_res = supabase.table("plugin_installations").select("api_key_encrypted").eq("plugin_id", "vercel").limit(1).execute()
+                                pi_res = supabase.table("plugin_installations").select("api_key_encrypted").eq("plugin_id", "vercel").eq("installed_by", str(project.get("owner_id") or "")).limit(1).execute()
                                 if pi_res.data:
                                     token = pi_res.data[0].get("api_key_encrypted") or ""
                             if token and "••••" not in token:
@@ -203,7 +210,7 @@ async def poll_rollback_status(rollback_id: str) -> None:
                         elif provider == "netlify" and project.get("netlify_site_id"):
                             token = getattr(settings, "NETLIFY_API_TOKEN", "") or ""
                             if not token:
-                                pi_res = supabase.table("plugin_installations").select("api_key_encrypted").eq("plugin_id", "netlify").limit(1).execute()
+                                pi_res = supabase.table("plugin_installations").select("api_key_encrypted").eq("plugin_id", "netlify").eq("installed_by", str(project.get("owner_id") or "")).limit(1).execute()
                                 if pi_res.data:
                                     token = pi_res.data[0].get("api_key_encrypted") or ""
                             if token and "••••" not in token:

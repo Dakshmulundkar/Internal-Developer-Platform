@@ -27,8 +27,16 @@ router = APIRouter()
 def _verify_security_webhook(request_body: bytes, signature: str) -> bool:
     """Verify the GitHub ``X-Hub-Signature-256`` HMAC-SHA256 signature."""
     if not settings.GITHUB_WEBHOOK_SECRET:
+        if settings.ENVIRONMENT == "production":
+            logger.error(
+                "GITHUB_WEBHOOK_SECRET not configured — refusing webhook in production"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Webhook not configured",
+            )
         logger.warning(
-            "GITHUB_WEBHOOK_SECRET not configured — webhook signature verification disabled"
+            "GITHUB_WEBHOOK_SECRET not configured — webhook signature verification disabled (dev only)"
         )
         return True
     expected = "sha256=" + hmac.new(

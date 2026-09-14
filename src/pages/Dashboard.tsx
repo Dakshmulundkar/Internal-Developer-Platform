@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import type { PageType } from '../context/PlatformContext';
-import { isApiAvailable, api } from '../services/api';
 import { useDragReorder } from '../hooks/useDragReorder';
 import { 
   FolderGit2, AlertTriangle, RefreshCw, Activity,
@@ -178,10 +177,9 @@ function CustomizeDialog({
 export const Dashboard: React.FC = () => {
   const { 
     projects, deployments, incidents,
-    auditLogs: contextAuditLogs, navigateTo, pluginInstallations, monitoringAlerts, sentryIssues
+    auditLogs, navigateTo, pluginInstallations, monitoringAlerts, sentryIssues
   } = usePlatform();
 
-  const [liveAuditLogs, setLiveAuditLogs] = useState<typeof contextAuditLogs | null>(null);
   const [layout, setLayout] = useState<WidgetConfig[]>(loadLayout);
   const [customizeOpen, setCustomizeOpen] = useState(false);
 
@@ -190,71 +188,91 @@ export const Dashboard: React.FC = () => {
     saveLayout(next);
   };
 
-  useEffect(() => {
-    if (!isApiAvailable()) return;
-    api.audit.list(10)
-      .then(data => setLiveAuditLogs(data as typeof contextAuditLogs))
-      .catch(() => {/* fall through to context */});
-  }, []);
+  const {
+    totalProjects,
+    activeDeployments,
+    failedDeployments,
+    openIncidents,
+    installedPlugins,
+    firingAlerts,
+    firingGrafana,
+    firingDatadog,
+    grafanaValue,
+    unresolvedSentry,
+    newSentryToday,
+    incidentTrendData,
+    alertTrendData,
+    successRateValue,
+    successChartData,
+  } = useMemo(() => {
+    const computedActive = deployments.filter(d => d.status === 'building' || d.status === 'queued').length;
+    const computedFailed = deployments.filter(d => d.status === 'failed').length;
+    const computedOpenIncidents = incidents.filter(i => i.status !== 'resolved').length;
+    const computedFiring = monitoringAlerts.filter(a => a.status === 'firing').length;
 
-  const auditLogs = liveAuditLogs ?? contextAuditLogs;
+    const computedFiringGrafana = monitoringAlerts.filter(a => a.source === 'grafana' && a.status === 'firing');
+    const computedFiringDatadog = monitoringAlerts.filter(a => a.source === 'datadog' && a.status === 'firing').length;
+    const computedGrafanaValue = computedFiringGrafana[0]?.value ?? null;
 
-  const totalProjects = projects.length;
-  const activeDeployments = deployments.filter(d => d.status === 'building' || d.status === 'queued').length;
-  const failedDeployments = deployments.filter(d => d.status === 'failed').length;
-  const openIncidents = incidents.filter(i => i.status !== 'resolved').length;
-  const installedPlugins = pluginInstallations.length;
-  const firingAlerts = monitoringAlerts.filter(a => a.status === 'firing').length;
+    const issueList = sentryIssues ?? [];
+    const computedUnresolved = issueList.filter(i => i.status === 'unresolved').length;
+    const date24hAgo = new Date(Date.now() - 86400000).toISOString();
+    const computedNewToday = issueList.filter(i => i.firstSeen >= date24hAgo).length;
 
-  // Service Health derived metrics
-  const issues = sentryIssues ?? [];
-  const unresolvedSentry = issues.filter(i => i.status === 'unresolved').length;
-  const date24hAgo = new Date(Date.now() - 86400000).toISOString();
-  const newSentryToday = issues.filter(i => i.firstSeen >= date24hAgo).length;
-  const firingGrafana = monitoringAlerts.filter(a => a.source === 'grafana' && a.status === 'firing');
-  const firingDatadog = monitoringAlerts.filter(a => a.source === 'datadog' && a.status === 'firing').length;
-  const grafanaValue = firingGrafana[0]?.value ?? null;
+    const dayBuckets = Array.from({ length: 7 }, (_, idx) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (6 - idx));
+      const dayName = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      const ymd = d.toISOString().slice(0, 10);
+      return { dayName, ymd, isToday: idx === 6 };
+    });
 
-  // Generate dynamic 7-day trend from real incidents, alerts, and deployments
-  const dayBuckets = Array.from({ length: 7 }, (_, idx) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - idx));
-    const dayName = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-    const ymd = d.toISOString().slice(0, 10);
-    return { dayName, ymd, isToday: idx === 6 };
-  });
+    const computedIncidentTrend = dayBuckets.map(bucket => {
+      const dayIncidents = incidents.filter(i => (i.createdAt || '').startsWith(bucket.ymd));
+      const openCount = bucket.isToday
+        ? computedOpenIncidents
+        : dayIncidents.filter(i => i.status !== 'resolved').length;
+      const resolvedCount = dayIncidents.filter(i => i.status === 'resolved').length;
+      return { name: bucket.dayName, open: openCount, resolved: resolvedCount };
+    });
 
-  const incidentTrendData = dayBuckets.map(bucket => {
-    const dayIncidents = incidents.filter(i => (i.createdAt || '').startsWith(bucket.ymd));
-    const openCount = bucket.isToday
-      ? openIncidents
-      : dayIncidents.filter(i => i.status !== 'resolved').length;
-    const resolvedCount = dayIncidents.filter(i => i.status === 'resolved').length;
-    return {
+    const computedAlertTrend = dayBuckets.map(bucket => {
+      const dayAlerts = monitoringAlerts.filter(a => (a.firedAt || '').startsWith(bucket.ymd));
+      return {
+        name: bucket.dayName,
+        grafana: bucket.isToday ? computedFiringGrafana.length : dayAlerts.filter(a => a.source === 'grafana').length,
+        datadog: bucket.isToday ? computedFiringDatadog : dayAlerts.filter(a => a.source === 'datadog').length,
+        sentry: dayAlerts.filter(a => a.source === 'sentry').length,
+      };
+    });
+
+    const computedSuccessRate = deployments.length > 0
+      ? Math.round((deployments.filter(d => d.status === 'ready' || d.status === 'rolled_back').length / deployments.length) * 100)
+      : 94;
+
+    const computedSuccessChart = dayBuckets.map((bucket, i) => ({
       name: bucket.dayName,
-      open: openCount,
-      resolved: resolvedCount,
-    };
-  });
+      successRate: bucket.isToday ? computedSuccessRate : Math.min(100, Math.max(82, 90 + (i % 3) * 3)),
+    }));
 
-  const alertTrendData = dayBuckets.map(bucket => {
-    const dayAlerts = monitoringAlerts.filter(a => (a.firedAt || '').startsWith(bucket.ymd));
     return {
-      name: bucket.dayName,
-      grafana: bucket.isToday ? firingGrafana.length : dayAlerts.filter(a => a.source === 'grafana').length,
-      datadog: bucket.isToday ? firingDatadog : dayAlerts.filter(a => a.source === 'datadog').length,
-      sentry: dayAlerts.filter(a => a.source === 'sentry').length,
+      totalProjects: projects.length,
+      activeDeployments: computedActive,
+      failedDeployments: computedFailed,
+      openIncidents: computedOpenIncidents,
+      installedPlugins: pluginInstallations.length,
+      firingAlerts: computedFiring,
+      firingGrafana: computedFiringGrafana,
+      firingDatadog: computedFiringDatadog,
+      grafanaValue: computedGrafanaValue,
+      unresolvedSentry: computedUnresolved,
+      newSentryToday: computedNewToday,
+      incidentTrendData: computedIncidentTrend,
+      alertTrendData: computedAlertTrend,
+      successRateValue: computedSuccessRate,
+      successChartData: computedSuccessChart,
     };
-  });
-
-  const successRateValue = deployments.length > 0
-    ? Math.round((deployments.filter(d => d.status === 'ready' || d.status === 'rolled_back').length / deployments.length) * 100)
-    : 94;
-
-  const successChartData = dayBuckets.map((bucket, i) => ({
-    name: bucket.dayName,
-    successRate: bucket.isToday ? successRateValue : Math.min(100, Math.max(82, 90 + (i % 3) * 3)),
-  }));
+  }, [projects, deployments, incidents, monitoringAlerts, sentryIssues, pluginInstallations]);
 
   const visibleWidgets = layout.filter(w => w.visible);
 

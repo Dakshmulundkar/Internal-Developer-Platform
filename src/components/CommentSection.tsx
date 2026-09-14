@@ -74,12 +74,14 @@ export const CommentSection: React.FC<CommentSectionProps> = ({
       setComments(demoComments);
       return;
     }
+    let cancelled = false;
     setLoading(true);
     api.comments
       .list(entityType, entityId)
-      .then(data => setComments((data || []) as CommentItem[]))
-      .catch(err => console.warn('[CommentSection] load failed:', err))
-      .finally(() => setLoading(false));
+      .then(data => { if (!cancelled) setComments((data || []) as CommentItem[]); })
+      .catch(err => { if (!cancelled) console.warn('[CommentSection] load failed:', err); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [entityType, entityId]);
 
   useEffect(() => {

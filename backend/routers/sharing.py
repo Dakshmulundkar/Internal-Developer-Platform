@@ -5,9 +5,11 @@ The public GET endpoint requires only the token (no auth) and increments
 access_count. Link owners can revoke links at any time.
 """
 
+import hashlib
+import hmac
 import logging
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -23,6 +25,45 @@ _ALLOWED_ENTITIES = {
     "deployment": "deployments",
     "project": "projects",
 }
+
+_PBKDF2_HASH_ITERATIONS = 600_000
+
+
+def _hash_share_password(password: str) -> str:
+    """Hash a share-link password using a salted, slow KDF (PBKDF2-SHA256)."""
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), bytes.fromhex(salt), _PBKDF2_HASH_ITERATIONS
+    )
+    return f"pbkdf2_sha256${_PBKDF2_HASH_ITERATIONS}${salt}${digest.hex()}"
+
+
+def _verify_share_password(stored: str, supplied: str, link_id: str) -> bool:
+    """Verify a share-link password (constant-time), supporting the old unsalted
+    SHA-256 format for pre-migration links and upgrading them in place."""
+    try:
+        method, iterations, salt, expected = stored.split("$")
+        if method == "pbkdf2_sha256":
+            digest = hashlib.pbkdf2_hmac(
+                "sha256", supplied.encode(), bytes.fromhex(salt), int(iterations)
+            )
+            return hmac.compare_digest(digest.hex(), expected)
+    except (ValueError, AttributeError):
+        pass
+
+    # Legacy: plain sha256 hexdigest. Verify, then re-hash with PBKDF2 since we
+    # have the plaintext password available at check time.
+    if len(stored or "") == 64:
+        legacy = hashlib.sha256(supplied.encode()).hexdigest()
+        if hmac.compare_digest(legacy, stored):
+            try:
+                supabase.table("share_links").update(
+                    {"password_hash": _hash_share_password(supplied)}
+                ).eq("id", link_id).execute()
+            except Exception:
+                pass
+            return True
+    return False
 
 
 class ShareLinkCreate(BaseModel):
@@ -71,9 +112,7 @@ async def create_share_link(body: ShareLinkCreate, current_user=Depends(get_curr
 
     password_hash = None
     if body.password:
-        import hashlib
-
-        password_hash = hashlib.sha256(body.password.encode()).hexdigest()
+        password_hash = _hash_share_password(body.password)
 
     res = supabase.table("share_links").insert({
         "entity_type": body.entity_type,
@@ -122,11 +161,9 @@ async def public_view(entity_type: str, entity_id: str, token: str = "", passwor
             pass
 
     if link.get("password_hash"):
-        import hashlib
         if not password:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Password required")
-        supplied = hashlib.sha256(password.encode()).hexdigest()
-        if supplied != link.get("password_hash"):
+        if not _verify_share_password(link.get("password_hash"), password, link["id"]):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password")
 
     entity, _ = _entity_owner(entity_type, entity_id)

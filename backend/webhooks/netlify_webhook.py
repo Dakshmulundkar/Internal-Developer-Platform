@@ -39,7 +39,16 @@ async def netlify_webhook(request: Request, background_tasks: BackgroundTasks):
     body = await request.body()
 
     # HMAC-SHA256 signature verification
-    if settings.NETLIFY_WEBHOOK_SECRET:
+    if not settings.NETLIFY_WEBHOOK_SECRET:
+        if settings.ENVIRONMENT == "production":
+            logger.error(
+                "NETLIFY_WEBHOOK_SECRET not configured — refusing webhook in production"
+            )
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Webhook not configured")
+        logger.warning(
+            "NETLIFY_WEBHOOK_SECRET not configured — webhook signature verification disabled (dev only)"
+        )
+    else:
         sig_header = request.headers.get("x-netlify-signature", "")
         expected = hmac.new(
             settings.NETLIFY_WEBHOOK_SECRET.encode(),

@@ -39,7 +39,16 @@ async def vercel_webhook(request: Request, background_tasks: BackgroundTasks):
     body = await request.body()
 
     # HMAC-SHA1 signature verification
-    if settings.VERCEL_WEBHOOK_SECRET:
+    if not settings.VERCEL_WEBHOOK_SECRET:
+        if settings.ENVIRONMENT == "production":
+            logger.error(
+                "VERCEL_WEBHOOK_SECRET not configured — refusing webhook in production"
+            )
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Webhook not configured")
+        logger.warning(
+            "VERCEL_WEBHOOK_SECRET not configured — webhook signature verification disabled (dev only)"
+        )
+    else:
         sig_header = request.headers.get("x-vercel-signature", "")
         expected = hmac.new(
             settings.VERCEL_WEBHOOK_SECRET.encode(),

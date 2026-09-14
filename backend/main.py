@@ -14,7 +14,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -22,6 +22,17 @@ from config import settings
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(level=settings.LOG_LEVEL.upper())
+
+# httpx logs every outbound request URL at INFO (httpx/_client.py:1026/1773),
+# so plain INFO startup makes every Supabase / Vercel / Groq / GitHub call
+# print its endpoint into the terminal — leaking the Supabase project ref and
+# internal API paths (ids, table names). The keys themselves travel in headers
+# and are never logged, but the noise still surfaces internal structure and
+# gets flagged as a credential leak. Pin third-party HTTP loggers to WARNING
+# so app-level INFO logging stays intact without the URL spam.
+for _noisy_logger in ("httpx", "httpcore", "urllib3"):
+    logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,6 +72,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Security headers ─────────────────────────────────────────────────────────
+# Applied to every HTTP response (API + SPA). CSP is limited to production so
+# Vite's dev server (which runs on a different origin with its own headers)
+# is unaffected. connect-src needs ws:/wss: because the WebSocket handshake is
+# served from the same host but over a different scheme than https.
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+    )
+    if settings.ENVIRONMENT == "production":
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; font-src 'self' data:; "
+            "connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; "
+            "frame-ancestors 'none'",
+        )
+    return response
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 from routers import ai  # noqa: E402

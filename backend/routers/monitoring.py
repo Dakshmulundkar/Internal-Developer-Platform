@@ -1,12 +1,14 @@
 """Monitoring router — alerts, plugin sync, and service probing."""
 
 import logging
+import secrets
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from background.plugin_sync import sync_all_plugins
+from config import settings
 from database import supabase
 from dependencies import get_current_user, get_optional_user, get_user_project_ids
 from services.incident_service import create_from_alert
@@ -101,7 +103,7 @@ async def handle_probe(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(val_err)) from val_err
     except Exception as exc:
         logger.error("Probe failed for project %s: %s", project_id, exc)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Probe execution error: {exc}") from exc
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Probe execution failed") from exc
 
 
 @router.post("/trigger-test")
@@ -124,21 +126,24 @@ async def handle_trigger_test(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(val_err)) from val_err
     except Exception as exc:
         logger.error("Trigger test failed: %s", exc)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Test trigger error: {exc}") from exc
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Test trigger failed") from exc
 
 
 @router.post("/events")
 async def ingest_event(
     body: EventIntakeRequest,
     background_tasks: BackgroundTasks,
+    request: Request,
     current_user=Depends(get_optional_user),
 ):
     """Direct event intake from external test runners, deployed sites, or client telemetry.
 
-    Unauthenticated callers must supply an explicit, valid project_id (no
-    fallback) and their events are recorded WITHOUT triggering incidents,
-    notifications, or emails. Fully-authenticated callers may create alerts in
-    their own projects including the auto-incident flow.
+    Authenticated callers may create alerts in their own projects including the
+    auto-incident flow.  Unauthenticated callers MUST supply:
+      - an explicit, valid ``project_id`` (UUID), AND
+      - an ``X-Event-Intake-Secret`` header matching ``settings.EVENT_INTAKE_TOKEN``.
+    Without the shared secret anonymous callers are rejected (fail-closed).
+    Unauthenticated events never trigger incidents, notifications, or emails.
     """
     assigned_project_id = None
     if current_user:
@@ -146,9 +151,15 @@ async def ingest_event(
         if body.project_id and body.project_id in project_ids:
             assigned_project_id = body.project_id
     else:
-        # Unauthenticated: only accept an explicit project UUID; never fall back
-        # to guessing a project (that would let callers target random tenants).
-        if body.project_id and is_valid_uuid(body.project_id):
+        # Unauthenticated: require BOTH a valid UUID project_id AND the shared
+        # intake secret so random callers cannot inject cross-tenant alerts.
+        intake_secret = request.headers.get("x-event-intake-secret", "")
+        if (
+            settings.EVENT_INTAKE_TOKEN
+            and secrets.compare_digest(intake_secret, settings.EVENT_INTAKE_TOKEN)
+            and body.project_id
+            and is_valid_uuid(body.project_id)
+        ):
             assigned_project_id = body.project_id
 
     if not assigned_project_id:
