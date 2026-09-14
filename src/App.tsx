@@ -77,12 +77,12 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#050505]">
+    <div className="flex h-screen w-screen overflow-hidden bg-dark-950">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         <Header />
         <InviteBanner />
-        <main className="flex-1 overflow-y-auto p-6 bg-[#050505]">
+        <main className="flex-1 overflow-y-auto p-6 bg-dark-950">
           <Suspense fallback={<PageLoader />}>
             {renderPage()}
           </Suspense>

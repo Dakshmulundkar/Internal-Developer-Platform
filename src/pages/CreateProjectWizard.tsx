@@ -124,7 +124,7 @@ export const CreateProjectWizard: React.FC = () => {
                 <div className={`w-8 h-8 rounded-full border flex items-center justify-center text-xs font-bold font-mono transition-all duration-300 ${
                   isCompleted ? 'bg-white text-black border-white' :
                   isActive ? 'bg-white/[0.03] border-zinc-400 text-zinc-200' :
-                  'bg-[#050505] border-white/[0.06] text-zinc-600'
+                  'bg-dark-950 border-white/[0.06] text-zinc-600'
                 }`}>
                   {isCompleted ? <Check size={12} strokeWidth={3} /> : s.num}
                 </div>

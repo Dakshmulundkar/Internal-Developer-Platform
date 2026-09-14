@@ -4,11 +4,11 @@
 
 * { box-sizing: border-box; }
 
-::selection { background: rgba(255,255,255,0.2); color: white; }
+::selection { background: rgba(59, 130, 246, 0.3); color: white; }
 
 @layer base {
   body {
-    background: #050505;
+    background: #06060A;
     color: rgb(161,161,170);
     font-family: 'Inter', sans-serif;
     -webkit-font-smoothing: antialiased;
@@ -24,17 +24,107 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #3f3f46;
+  background: rgba(255,255,255,0.08);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
+  background: rgba(255,255,255,0.16);
 }
 
-/* Glass effect */
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid rgba(59,130,246,0.5);
+  outline-offset: 2px;
+}
+
+/* ── Glass utilities ─────────────────────────────────────────────── */
+
 .glass {
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.glass-strong {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(32px) saturate(200%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* ── Card with hover lift ────────────────────────────────────────── */
+
+.card {
+  background: rgba(28, 28, 30, 0.4);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.card:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3);
+}
+
+/* ── Ambient glow blob ───────────────────────────────────────────── */
+
+.card-glow {
+  position: absolute;
+  top: -20px;
+  right: -20px;
+  width: 100px;
+  height: 100px;
+  border-radius: 9999px;
+  filter: blur(60px);
+  opacity: 0.05;
+  pointer-events: none;
+}
+
+/* ── Badges ──────────────────────────────────────────────────────── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid;
+}
+
+.badge-green  { background: rgba(52,211,153,0.1); color: #34D399; border-color: rgba(52,211,153,0.2); }
+.badge-red    { background: rgba(248,113,113,0.1); color: #F87171; border-color: rgba(248,113,113,0.2); }
+.badge-amber  { background: rgba(251,191,36,0.1); color: #FBBF24; border-color: rgba(251,191,36,0.2); }
+.badge-blue   { background: rgba(59,130,246,0.18); color: #93C5FD; border-color: rgba(59,130,246,0.2); }
+.badge-muted  { background: rgba(255,255,255,0.05); color: #8E8EA0; border-color: rgba(255,255,255,0.07); }
+.badge-violet { background: rgba(139,92,246,0.1); color: #A78BFA; border-color: rgba(139,92,246,0.2); }
+.badge-purple { background: rgba(168,85,247,0.1); color: #C084FC; border-color: rgba(168,85,247,0.2); }
+.badge-orange { background: rgba(249,115,22,0.1); color: #FB923C; border-color: rgba(249,115,22,0.2); }
+.badge-emerald{ background: rgba(16,185,129,0.1); color: #34D399; border-color: rgba(16,185,129,0.2); }
+
+/* ── Micro-animations ────────────────────────────────────────────── */
+
+@keyframes fadeIn   { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+@keyframes slideUp  { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+@keyframes scaleIn  { from { opacity:0; transform:scale(0.94); } to { opacity:1; transform:scale(1); } }
+@keyframes shimmer  { 0% { background-position:-468px 0; } 100% { background-position:468px 0; } }
+
+.animate-fade-in  { animation: fadeIn 0.35s cubic-bezier(0,0,0.2,1) both; }
+.animate-slide-up { animation: slideUp 0.4s cubic-bezier(0,0,0.2,1) both; }
+.animate-scale-in { animation: scaleIn 0.25s cubic-bezier(0.34,1.56,0.64,1) both; }
+
+.skeleton {
+  background: linear-gradient(90deg, #0D0D12 25%, #13131A 37%, #0D0D12 63%);
+  background-size: 936px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
 }
 
 /* AI chat loading dots animation */
@@ -61,13 +151,13 @@
 
 /* Native select dropdown styling — forces dark theme on all pages */
 select {
-  background-color: #0a0a0a;
-  color: rgb(228, 228, 231); /* zinc-200 — bright enough to read */
+  background-color: #0D0D12;
+  color: rgb(228, 228, 231);
   border-color: rgba(255,255,255,0.08);
 }
 
 select option {
-  background-color: #111111;
+  background-color: #13131A;
   color: rgb(228, 228, 231);
 }
 
@@ -75,7 +165,7 @@ select option:hover,
 select option:focus,
 select option:active,
 select option:checked {
-  background-color: #1f1f1f;
+  background-color: #1A1A24;
   color: #ffffff;
 }
 

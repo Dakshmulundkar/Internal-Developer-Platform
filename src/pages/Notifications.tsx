@@ -76,7 +76,7 @@ export const Notifications: React.FC = () => {
         {notifications.filter(n => !n.read).length > 0 && (
           <button
             onClick={markAllNotificationsRead}
-            className="flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 border border-white/[0.06] text-zinc-300 font-medium py-1.5 px-3 rounded text-xs transition-all"
+            className="flex items-center gap-1.5 bg-dark-800 hover:bg-dark-700 border border-white/[0.06] text-zinc-300 font-medium py-1.5 px-3 rounded text-xs transition-all"
           >
             <MailOpen size={14} />
             Mark all read

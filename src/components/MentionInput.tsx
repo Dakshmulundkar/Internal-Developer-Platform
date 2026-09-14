@@ -172,7 +172,7 @@ export const MentionInput: React.FC<MentionInputProps> = ({
       />
 
       {open && suggestions.length > 0 && (
-        <div className="absolute left-0 right-0 bottom-full mb-1.5 z-20 bg-[#0a0a0a] border border-white/[0.08] rounded-lg shadow-xl py-1 max-h-44 overflow-y-auto">
+        <div className="absolute left-0 right-0 bottom-full mb-1.5 z-20 bg-dark-900 glass border border-white/[0.08] rounded-lg shadow-xl py-1 max-h-44 overflow-y-auto">
           <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-zinc-600 font-bold">
             Mention a teammate
           </div>

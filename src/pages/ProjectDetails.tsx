@@ -142,7 +142,7 @@ export const ProjectDetails: React.FC = () => {
           {getStatusIndicator(project.status)}
           <button
             onClick={() => setShowShare(true)}
-            className="flex items-center gap-1.5 bg-zinc-900 text-zinc-300 border border-white/[0.06] text-xs font-medium px-3 py-1.5 rounded-md transition-all hover:bg-zinc-800"
+            className="flex items-center gap-1.5 bg-dark-800 text-zinc-300 border border-white/[0.06] text-xs font-medium px-3 py-1.5 rounded-md transition-all hover:bg-dark-700"
           >
             <Share2 size={12} /> Share
           </button>
@@ -457,7 +457,7 @@ export const ProjectDetails: React.FC = () => {
                 <RefreshCw size={13} />Trigger Manual Sync
               </button>
               <button onClick={() => navigateTo('rollback-recovery', { projectId: project.id })}
-                className="bg-zinc-900 text-zinc-300 border border-white/[0.06] hover:bg-zinc-800 font-medium py-2 px-4 rounded-lg text-xs transition-all">
+                className="bg-dark-800 text-zinc-300 border border-white/[0.06] hover:bg-dark-700 font-medium py-2 px-4 rounded-lg text-xs transition-all">
                 View Rollback History
               </button>
             </div>
@@ -556,7 +556,7 @@ export const ProjectDetails: React.FC = () => {
       {/* Invite Modal */}
       {showInviteModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-[#050505] border border-white/[0.06] rounded-xl p-6 w-96 shadow-2xl space-y-4">
+          <div className="bg-dark-950 border border-white/[0.06] rounded-xl p-6 w-96 shadow-2xl space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="text-sm font-semibold text-white">Invite Team Member</h3>
               <button onClick={() => { setShowInviteModal(false); setInviteEmail(''); setInviteRole('developer'); }}
@@ -581,7 +581,7 @@ export const ProjectDetails: React.FC = () => {
             </div>
             <div className="flex justify-end gap-2 pt-2 border-t border-white/[0.06]">
               <button onClick={() => { setShowInviteModal(false); setInviteEmail(''); }}
-                className="px-3 py-1.5 bg-zinc-900 border border-white/[0.06] text-zinc-300 rounded text-xs">Cancel</button>
+                className="px-3 py-1.5 bg-dark-800 border border-white/[0.06] text-zinc-300 rounded text-xs">Cancel</button>
               <button
                 onClick={() => {
                   if (!inviteEmail.trim()) return;

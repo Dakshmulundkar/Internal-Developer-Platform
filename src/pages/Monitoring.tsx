@@ -187,7 +187,8 @@ export const Monitoring: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="relative overflow-hidden bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="card-glow" style={{ background: '#FBBF24' }}></div>
         <div>
           <h3 className="text-base font-semibold text-white flex items-center gap-2">
             <Activity size={18} className="text-amber-400" />
@@ -198,11 +199,11 @@ export const Monitoring: React.FC = () => {
           </p>
         </div>
         <div className="flex gap-3 text-xs font-mono shrink-0">
-          <div className="bg-red-500/10 border border-red-500/20 px-3 py-1.5 rounded-lg">
+          <div className="bg-red-500/10 border border-red-500/20 shadow-glow-red px-3 py-1.5 rounded-lg">
             <span className="text-red-400 font-bold">{firing}</span>
             <span className="text-zinc-500 ml-1">firing</span>
           </div>
-          <div className="bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-lg">
+          <div className="bg-emerald-500/10 border border-emerald-500/20 shadow-glow-green px-3 py-1.5 rounded-lg">
             <span className="text-emerald-400 font-bold">{resolved}</span>
             <span className="text-zinc-500 ml-1">resolved</span>
           </div>
@@ -214,7 +215,8 @@ export const Monitoring: React.FC = () => {
       </div>
 
       {/* Live Testing & Observability Trigger Panel */}
-      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-4">
+      <div className="relative overflow-hidden bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-4">
+        <div className="card-glow" style={{ background: '#3B82F6' }}></div>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider flex items-center gap-2">
@@ -452,7 +454,7 @@ export const Monitoring: React.FC = () => {
           {/* Alert detail panel */}
           <div className="lg:col-span-1">
             {activeDetail ? (
-              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-4 sticky top-0">
+              <div className="relative overflow-hidden bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-4 sticky top-0">
                 <div className="border-b border-white/[0.06] pb-3">
                   <div className="flex items-center gap-2 flex-wrap mb-2">
                     {sourceIcon(activeDetail.source)}
@@ -540,7 +542,7 @@ export const Monitoring: React.FC = () => {
 
       {tab === 'sentry' && (
         <div className="space-y-4">
-          <div className="bg-violet-500/5 border border-violet-500/20 rounded-xl p-4 text-xs text-zinc-400 flex items-start gap-2">
+          <div className="relative overflow-hidden bg-violet-500/5 border border-violet-500/20 rounded-xl p-4 text-xs text-zinc-400 flex items-start gap-2">
             <Bug size={14} className="text-violet-400 shrink-0 mt-0.5" />
             <span>
               Showing Sentry issues pulled via the <b className="text-zinc-200">Sentry Plugin</b>.
@@ -549,7 +551,7 @@ export const Monitoring: React.FC = () => {
           </div>
 
           {sentryIssues.length === 0 ? (
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-12 text-center text-zinc-500">
+            <div className="relative overflow-hidden bg-white/[0.03] border border-white/[0.06] rounded-xl p-12 text-center text-zinc-500">
               <Bug size={28} className="mx-auto mb-3 text-zinc-600" />
               <p className="text-xs font-semibold text-zinc-300">No Sentry Issues Reported</p>
               <p className="text-[11px] text-zinc-500 mt-1 max-w-sm mx-auto">

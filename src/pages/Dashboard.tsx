@@ -105,7 +105,7 @@ function CustomizeDialog({
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md rounded-xl border border-white/10 bg-[#0a0a0a] shadow-2xl">
+      <div className="w-full max-w-md rounded-xl border border-white/10 bg-dark-900 glass shadow-2xl">
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
           <h3 className="text-sm font-semibold text-white tracking-tight flex items-center gap-2">
             <LayoutGrid size={15} className="text-zinc-400" /> Customize Dashboard
@@ -291,11 +291,12 @@ export const Dashboard: React.FC = () => {
 
         return (
           <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-            {cards.map(card => {
+            {cards.map((card, idx) => {
               const Icon = card.icon;
               return (
-                <div key={card.label} onClick={() => navigateTo(card.page)}
-                  className="bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.05] p-4 rounded-xl cursor-pointer transition-all group">
+                <div key={card.label} onClick={() => navigateTo(card.page)} style={{ animationDelay: `${idx * 60}ms` }}
+                  className="relative overflow-hidden border border-white/[0.06] hover:border-white/20 p-4 rounded-xl cursor-pointer transition-all group animate-slide-up">
+                  <div className="card-glow" style={{ background: card.color === 'text-zinc-400' ? '#71717a' : card.color === 'text-blue-400' ? '#3B82F6' : card.color === 'text-red-400' ? '#F87171' : card.color === 'text-amber-400' ? '#FBBF24' : card.color === 'text-violet-400' ? '#8B5CF6' : '#3B82F6' }}></div>
                   <div className="flex justify-between items-start mb-3">
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 leading-snug max-w-[80%]">{card.label}</span>
                     <Icon size={14} className={card.color + (card.animate ? ' animate-pulse' : '')} />
@@ -314,7 +315,8 @@ export const Dashboard: React.FC = () => {
 
       case 'success':
         return (
-          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 h-[280px]">
+          <div className="relative overflow-hidden card-glow border border-white/[0.06] rounded-xl p-5 h-[280px]">
+            <div className="card-glow" style={{ background: '#3B82F6' }}></div>
             <div className="flex justify-between items-center mb-4">
               <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Deployment Success Rate (%)</h4>
               <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">Avg: {successRateValue}%</span>
@@ -341,7 +343,8 @@ export const Dashboard: React.FC = () => {
 
       case 'incidentTrend':
         return (
-          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 h-[280px]">
+          <div className="relative overflow-hidden card-glow border border-white/[0.06] rounded-xl p-5 h-[280px]">
+            <div className="card-glow" style={{ background: '#F87171' }}></div>
             <div className="flex justify-between items-center mb-4">
               <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Incident Activity</h4>
               <div className="flex gap-3 text-[10px] font-mono">
@@ -366,7 +369,8 @@ export const Dashboard: React.FC = () => {
 
       case 'alertTrend':
         return (
-          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 h-[280px]">
+          <div className="relative overflow-hidden card-glow border border-white/[0.06] rounded-xl p-5 h-[280px]">
+            <div className="card-glow" style={{ background: '#FBBF24' }}></div>
             <div className="flex justify-between items-center mb-4">
               <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Monitoring Alert Trend</h4>
               <button onClick={() => navigateTo('monitoring')} className="text-[10px] text-zinc-400 hover:text-zinc-200 hover:underline">View all</button>
@@ -389,7 +393,7 @@ export const Dashboard: React.FC = () => {
 
       case 'audit':
         return (
-          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
+          <div className="relative overflow-hidden border border-white/[0.06] rounded-xl p-5">
             <div className="flex justify-between items-center mb-4">
               <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Aether Platform Audit Trail</h4>
               <button onClick={() => navigateTo('notifications')} className="text-[10px] text-zinc-400 hover:text-zinc-200 hover:underline">Full logs</button>
@@ -425,7 +429,7 @@ export const Dashboard: React.FC = () => {
 
       case 'integrationHealth':
         return (
-          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 h-[280px] flex flex-col">
+          <div className="relative overflow-hidden border border-white/[0.06] rounded-xl p-5 h-[280px] flex flex-col">
             <div className="flex justify-between items-center mb-3">
               <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Integration Health</h4>
               <span className="text-[10px] text-zinc-500 font-mono">
@@ -480,7 +484,7 @@ export const Dashboard: React.FC = () => {
 
       case 'serviceHealth':
         return (
-          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
+          <div className="relative overflow-hidden border border-white/[0.06] rounded-xl p-5">
             <div className="flex justify-between items-center mb-4">
               <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Service Health</h4>
               <button onClick={() => navigateTo('monitoring')} className="text-[10px] text-zinc-400 hover:text-zinc-200 hover:underline">View all alerts →</button>
@@ -489,6 +493,7 @@ export const Dashboard: React.FC = () => {
               {/* Grafana */}
               <div onClick={() => navigateTo('monitoring')}
                 className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5 cursor-pointer hover:bg-white/[0.04] transition-all group">
+                <div className="card-glow" style={{ background: '#F97316' }}></div>
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-[10px] font-bold font-mono text-orange-400 uppercase tracking-wider">Grafana</span>
                   <span className={`text-[9px] font-mono font-semibold px-2 py-0.5 rounded border ${
@@ -512,6 +517,7 @@ export const Dashboard: React.FC = () => {
               {/* Sentry */}
               <div onClick={() => navigateTo('monitoring')}
                 className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5 cursor-pointer hover:bg-white/[0.04] transition-all group">
+                <div className="card-glow" style={{ background: '#8B5CF6' }}></div>
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-[10px] font-bold font-mono text-violet-400 uppercase tracking-wider">Sentry</span>
                   <span className={`text-[9px] font-mono font-semibold px-2 py-0.5 rounded border ${
@@ -533,6 +539,7 @@ export const Dashboard: React.FC = () => {
               {/* Datadog */}
               <div onClick={() => navigateTo('monitoring')}
                 className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5 cursor-pointer hover:bg-white/[0.04] transition-all group">
+                <div className="card-glow" style={{ background: '#A855F7' }}></div>
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-[10px] font-bold font-mono text-purple-400 uppercase tracking-wider">Datadog</span>
                   <span className={`text-[9px] font-mono font-semibold px-2 py-0.5 rounded border ${
@@ -562,7 +569,8 @@ export const Dashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Jira-style Summary header */}
-      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
+      <div className="relative overflow-hidden border border-white/[0.06] rounded-xl p-5">
+        <div className="card-glow" style={{ background: '#3B82F6' }}></div>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5">
           <div>
             <h3 className="text-sm font-semibold text-white tracking-tight flex items-center gap-2">
@@ -576,11 +584,11 @@ export const Dashboard: React.FC = () => {
           </div>
           <div className="flex gap-2">
             <button onClick={() => setCustomizeOpen(true)}
-              className="bg-zinc-900 text-zinc-300 border border-white/[0.06] hover:bg-zinc-800 font-medium py-2 px-3 rounded-lg text-xs transition-all flex items-center gap-1.5">
+              className="bg-dark-800 text-zinc-300 border border-white/[0.06] hover:bg-dark-700 font-medium py-2 px-3 rounded-lg text-xs transition-all flex items-center gap-1.5">
               <LayoutGrid size={13} /> Customize
             </button>
             <button onClick={() => navigateTo('integrations')}
-              className="bg-zinc-900 text-zinc-300 border border-white/[0.06] hover:bg-zinc-800 font-medium py-2 px-3 rounded-lg text-xs transition-all flex items-center gap-1.5">
+              className="bg-dark-800 text-zinc-300 border border-white/[0.06] hover:bg-dark-700 font-medium py-2 px-3 rounded-lg text-xs transition-all flex items-center gap-1.5">
               <Puzzle size={13} /> Integrations
             </button>
             <button onClick={() => navigateTo('create-project')}

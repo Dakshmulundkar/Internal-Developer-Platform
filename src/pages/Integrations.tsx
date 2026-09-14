@@ -274,7 +274,7 @@ export const Integrations: React.FC = () => {
       {/* Confirm Remove Modal */}
       {confirmRemoveId && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-[#050505] border border-white/[0.06] rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4 glass">
+          <div className="bg-dark-950 border border-white/[0.06] rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4 glass">
             <div className="flex items-center gap-3 text-red-400">
               <Trash2 size={20} />
               <h3 className="font-semibold text-sm text-white">Remove Plugin</h3>
@@ -284,7 +284,7 @@ export const Integrations: React.FC = () => {
             </p>
             <div className="flex justify-end gap-3 pt-2 border-t border-white/[0.06]">
               <button onClick={() => setConfirmRemoveId(null)}
-                className="px-3 py-1.5 rounded bg-zinc-900 hover:bg-zinc-800 border border-white/[0.06] text-zinc-300 text-xs font-medium">
+                className="px-3 py-1.5 rounded bg-dark-800 hover:bg-dark-700 border border-white/[0.06] text-zinc-300 text-xs font-medium">
                 Cancel
               </button>
               <button onClick={() => handleRemove(confirmRemoveId)}

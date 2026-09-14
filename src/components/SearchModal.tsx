@@ -129,7 +129,7 @@ export const SearchModal: React.FC = () => {
       onClick={() => setOpen(false)}
     >
       <div
-        className="w-full max-w-xl bg-[#0a0a0a] border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
+        className="w-full max-w-xl bg-dark-900 glass border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
         {/* Search input */}

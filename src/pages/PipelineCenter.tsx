@@ -212,7 +212,7 @@ function RollbackModal({ deployment, onClose }: {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-[#0a0a0a] border border-white/10 rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
+      <div className="bg-dark-900 glass border border-white/10 rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
         <div className="p-5 border-b border-white/[0.06] flex items-center justify-between">
           <div>
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
@@ -756,7 +756,7 @@ export const PipelineCenter: React.FC = () => {
               <Plus size={13} /> New Build <ChevronDown size={12} />
             </button>
             {newBuildOpen && (
-              <div className="absolute right-0 mt-2 w-64 bg-[#0a0a0a] border border-white/10 rounded-xl shadow-2xl z-50 py-1.5 overflow-hidden">
+              <div className="absolute right-0 mt-2 w-64 bg-dark-900 glass border border-white/10 rounded-xl shadow-2xl z-50 py-1.5 overflow-hidden">
                 <div className="px-3 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
                   Build now — select service
                 </div>
@@ -879,7 +879,7 @@ export const PipelineCenter: React.FC = () => {
                     </div>
                     <span className="text-[9px] font-mono text-blue-400 shrink-0"><Elapsed createdAt={d.createdAt} /> elapsed</span>
                   </div>
-                  <div className="relative h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                  <div className="relative h-1.5 rounded-full bg-dark-700 overflow-hidden">
                     <div className="absolute inset-0 bg-blue-400/30 animate-pulse rounded-full" />
                   </div>
                   <div className="flex flex-wrap gap-1 mt-2">

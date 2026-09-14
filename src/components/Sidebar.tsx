@@ -20,25 +20,25 @@ export const Sidebar: React.FC = () => {
     { id: 'deployments',       label: 'Deployments',         icon: History },
     { id: 'monitoring',        label: 'Monitoring',          icon: Activity,
       badge: firingAlertsCount > 0 ? firingAlertsCount : undefined,
-      badgeColor: 'bg-amber-500 text-white' },
+      badgeColor: 'bg-amber-500/10 text-amber-400 border border-amber-500/20' },
     { id: 'incidents',         label: 'Incidents',           icon: AlertOctagon,
       badge: openIncidentsCount > 0 ? openIncidentsCount : undefined,
-      badgeColor: 'bg-rose-500 text-white' },
+      badgeColor: 'bg-red-500/10 text-red-400 border border-red-500/20' },
     { id: 'rollback-recovery', label: 'Rollback & Recovery', icon: RefreshCw },
     { id: 'automation',        label: 'Automation',          icon: Zap },
     { id: 'scheduled-tasks',   label: 'Scheduled Tasks',     icon: CalendarClock },
     { id: 'ai-assistant',      label: 'AI Assistant',        icon: Bot },
     { id: 'integrations',      label: 'Integrations',        icon: Puzzle,
       badge: installedPluginsCount > 0 ? installedPluginsCount : undefined,
-      badgeColor: 'bg-zinc-600 text-white' },
+      badgeColor: 'bg-white/5 text-zinc-400 border border-white/[0.06]' },
     { id: 'notifications',     label: 'Notifications',       icon: Bell,
       badge: unreadNotificationsCount > 0 ? unreadNotificationsCount : undefined,
-      badgeColor: 'bg-blue-500 text-white' },
+      badgeColor: 'bg-blue-500/10 text-blue-400 border border-blue-500/20' },
     { id: 'settings',          label: 'Settings',            icon: Settings },
   ];
 
   return (
-    <aside className="w-56 bg-[#050505] border-r border-white/[0.06] flex flex-col h-screen shrink-0 glass">
+    <aside className="w-56 bg-dark-950 border-r border-white/[0.06] flex flex-col h-screen shrink-0 glass">
       {/* Brand */}
       <div className="p-5 border-b border-white/[0.06] flex items-center gap-3">
         <div className="w-8 h-8 bg-white/5 border border-white/10 rounded-lg flex items-center justify-center text-white">
@@ -64,7 +64,7 @@ export const Sidebar: React.FC = () => {
             <button key={item.id} onClick={() => navigateTo(item.id)}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-all duration-150 group ${
                 isActive
-                  ? 'bg-white/5 ring-1 ring-white/5 text-zinc-100'
+                  ? 'bg-white/5 ring-1 ring-white/5 text-zinc-100 shadow-glow-blue'
                   : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.03]'
               }`}>
               <div className="flex items-center gap-3">

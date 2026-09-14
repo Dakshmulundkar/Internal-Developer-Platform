@@ -199,7 +199,7 @@ export function ShareView() {
 
   if (needsPassword) {
     return (
-      <div className="h-screen w-screen bg-[#050505] flex items-center justify-center p-6">
+      <div className="h-screen w-screen bg-dark-950 flex items-center justify-center p-6">
         <div className="w-full max-w-md rounded-xl border border-white/10 bg-white/[0.03] p-8 text-center">
           <Lock className="w-8 h-8 text-yellow-400 mx-auto mb-4" />
           <p className="text-white/80 text-sm mb-4">This share link is password protected.</p>
@@ -236,7 +236,7 @@ export function ShareView() {
 
   if (state.status === 'loading') {
     return (
-      <div className="h-screen w-screen bg-[#050505] flex items-center justify-center">
+      <div className="h-screen w-screen bg-dark-950 flex items-center justify-center">
         <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
       </div>
     );
@@ -244,7 +244,7 @@ export function ShareView() {
 
   if (state.status === 'error') {
     return (
-      <div className="h-screen w-screen bg-[#050505] flex items-center justify-center p-6">
+      <div className="h-screen w-screen bg-dark-950 flex items-center justify-center p-6">
         <div className="w-full max-w-md rounded-xl border border-white/10 bg-white/[0.03] p-8 text-center">
           <AlertTriangle className="w-8 h-8 text-yellow-400 mx-auto mb-4" />
           <p className="text-white/80 text-sm">{state.message}</p>
@@ -264,7 +264,7 @@ export function ShareView() {
   const entityName = str(entity, 'name') || str(entity, 'title') || 'Shared resource';
 
   return (
-    <div className="min-h-screen bg-[#050505] p-6">
+    <div className="min-h-screen bg-dark-950 p-6">
       <div className="w-full max-w-3xl mx-auto mb-6">
         <div className="flex items-center gap-3 text-xs text-white/40">
           <span className="font-medium text-white/50 tracking-wide uppercase">AETHER IDP</span>

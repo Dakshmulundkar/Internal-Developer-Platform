@@ -105,7 +105,7 @@ export const Login: React.FC = () => {
   // Full-screen loading while processing GitHub OAuth callback
   if (githubLoading) {
     return (
-      <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center gap-4">
+      <div className="min-h-screen bg-dark-950 flex flex-col items-center justify-center gap-4">
         <CheckCircle size={40} className="text-emerald-400 animate-pulse" />
         <p className="text-white text-sm font-semibold">Completing GitHub sign-in…</p>
         <p className="text-zinc-500 text-xs">Setting up your workspace</p>
@@ -114,7 +114,7 @@ export const Login: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#050505] flex flex-col justify-center items-center px-4 relative overflow-hidden">
+    <div className="min-h-screen bg-dark-950 flex flex-col justify-center items-center px-4 relative overflow-hidden">
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-white/[0.01] rounded-full blur-3xl -z-10" />
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-white/[0.01] rounded-full blur-3xl -z-10" />
 
@@ -132,7 +132,7 @@ export const Login: React.FC = () => {
         <button
           onClick={handleGithubLogin}
           disabled={loading}
-          className="w-full flex items-center justify-center gap-2.5 bg-zinc-900 hover:bg-zinc-800 border border-white/[0.1] hover:border-white/20 text-zinc-100 py-3 rounded-lg text-sm font-medium transition-all mb-5"
+          className="w-full flex items-center justify-center gap-2.5 bg-dark-800 hover:bg-dark-700 border border-white/[0.1] hover:border-white/20 text-zinc-100 py-3 rounded-lg text-sm font-medium transition-all mb-5"
         >
           <Github size={16} />
           Continue with GitHub
@@ -141,7 +141,7 @@ export const Login: React.FC = () => {
         {/* Divider */}
         <div className="relative my-5 text-center">
           <hr className="border-white/[0.06]" />
-          <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#050505] px-3 text-[10px] text-zinc-600 font-semibold tracking-wider uppercase">
+          <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-dark-950 px-3 text-[10px] text-zinc-600 font-semibold tracking-wider uppercase">
             or continue with email
           </span>
         </div>

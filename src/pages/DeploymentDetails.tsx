@@ -172,7 +172,7 @@ export const DeploymentDetails: React.FC = () => {
             {deployment.status === 'failed' && stableTarget && (
               <button
                 onClick={() => setShowRollbackModal(true)}
-                className="bg-zinc-900 text-zinc-300 border border-white/[0.06] hover:bg-zinc-800 font-medium py-2 px-4 rounded-lg text-xs transition-all flex items-center gap-1.5"
+                className="bg-dark-800 text-zinc-300 border border-white/[0.06] hover:bg-dark-700 font-medium py-2 px-4 rounded-lg text-xs transition-all flex items-center gap-1.5"
               >
                 <Server size={14} />
                 Trigger Quick Rollback
@@ -181,7 +181,7 @@ export const DeploymentDetails: React.FC = () => {
 
             <button
               onClick={() => setShowShare(true)}
-              className="bg-zinc-900 text-zinc-300 border border-white/[0.06] hover:bg-zinc-800 font-medium py-2 px-4 rounded-lg text-xs transition-all flex items-center gap-1.5"
+              className="bg-dark-800 text-zinc-300 border border-white/[0.06] hover:bg-dark-700 font-medium py-2 px-4 rounded-lg text-xs transition-all flex items-center gap-1.5"
             >
               <Share2 size={14} />
               Share
@@ -207,7 +207,7 @@ export const DeploymentDetails: React.FC = () => {
               deployment.stages.map((stage, idx) => (
                 <div key={idx} className="relative flex items-start gap-3 text-xs">
                   {/* Status Indicator circle */}
-                  <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center -translate-x-[21px] bg-[#050505] z-10 ${
+                  <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center -translate-x-[21px] bg-dark-950 z-10 ${
                     stage.status === 'success' ? 'border-emerald-500' :
                     stage.status === 'running' ? 'border-blue-500 animate-pulse' :
                     stage.status === 'failed' ? 'border-red-500' :
@@ -453,7 +453,7 @@ export const DeploymentDetails: React.FC = () => {
       {/* Quick Rollback Confirmation Modal */}
       {showRollbackModal && stableTarget && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex justify-center items-center p-4 z-50">
-          <div className="bg-[#050505] border border-white/[0.06] w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-4 glass">
+          <div className="bg-dark-950 border border-white/[0.06] w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-4 glass">
             <div className="flex items-center gap-3 border-b border-white/[0.06] pb-3 text-red-400">
               <AlertCircle size={24} />
               <h3 className="font-semibold text-sm text-white">Redirection Target Check</h3>
@@ -489,7 +489,7 @@ export const DeploymentDetails: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowRollbackModal(false)}
-                className="px-3 py-1.5 rounded bg-zinc-900 hover:bg-zinc-800 border border-white/[0.06] text-zinc-300 text-xs font-medium transition-all"
+                className="px-3 py-1.5 rounded bg-dark-800 hover:bg-dark-700 border border-white/[0.06] text-zinc-300 text-xs font-medium transition-all"
               >
                 Abort
               </button>

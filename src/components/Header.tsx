@@ -72,7 +72,7 @@ export const Header: React.FC = () => {
   };
 
   return (
-    <header className="h-16 border-b border-white/[0.06] bg-white/[0.02] glass backdrop-blur-[12px] flex items-center justify-between px-6 shrink-0 relative z-30">
+    <header className="h-16 border-b border-white/[0.06] glass flex items-center justify-between px-6 shrink-0 relative z-30">
       {/* Title */}
       <div>
         <h2 className="text-sm font-semibold text-white tracking-wide">{getHeaderTitle()}</h2>
@@ -130,7 +130,7 @@ export const Header: React.FC = () => {
 
           {/* Webhook Simulator Popover */}
           {showSimulator && (
-            <div className="absolute right-0 mt-2 w-72 bg-[#050505] border border-white/[0.06] rounded-xl p-4 shadow-xl z-50 text-xs glass">
+            <div className="absolute right-0 mt-2 w-72 bg-dark-950 border border-white/[0.06] rounded-xl p-4 shadow-xl z-50 text-xs glass">
               <h3 className="font-bold text-zinc-200 mb-2 border-b border-white/[0.06] pb-1.5 flex items-center gap-1.5">
                 <Send size={12} className="text-zinc-400" />
                 Git Webhook Broker Sim
@@ -200,7 +200,7 @@ export const Header: React.FC = () => {
         >
           <ShieldAlert size={16} />
           {securityIncidents.filter(i => i.status === 'open').length > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center border border-[#050505]">
+            <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500/10 text-red-400 text-[9px] font-bold flex items-center justify-center border border-red-500/20">
               {securityIncidents.filter(i => i.status === 'open').length}
             </span>
           )}
@@ -214,13 +214,13 @@ export const Header: React.FC = () => {
           >
             <Bell size={16} />
             {unreadNotifications.length > 0 && (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 border border-[#050505]"></span>
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 border border-dark-950"></span>
             )}
           </button>
 
           {/* Notifications Dropdown */}
           {showNotificationDropdown && (
-            <div className="absolute right-0 mt-2 w-80 bg-[#050505] border border-white/[0.06] rounded-xl shadow-xl z-50 overflow-hidden text-xs glass">
+            <div className="absolute right-0 mt-2 w-80 bg-dark-950 border border-white/[0.06] rounded-xl shadow-xl z-50 overflow-hidden text-xs glass">
               <div className="p-3 border-b border-white/[0.06] flex justify-between items-center bg-white/[0.02]">
                 <span className="font-bold text-zinc-200">Recent Alerts</span>
                 <button 

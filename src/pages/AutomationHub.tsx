@@ -197,7 +197,7 @@ function ConfirmDialog({
       role="dialog" aria-modal="true" aria-label={title}
       onClick={onCancel}
     >
-      <div className="w-full max-w-sm rounded-xl border border-white/10 bg-[#0a0a0a] shadow-2xl p-5" onClick={e => e.stopPropagation()}>
+      <div className="w-full max-w-sm rounded-xl border border-white/10 bg-dark-900 glass shadow-2xl p-5" onClick={e => e.stopPropagation()}>
         <h3 className="text-sm font-semibold text-white flex items-center gap-2">
           <AlertTriangle size={15} className={confirmLabel === 'Delete' ? 'text-amber-400' : 'text-zinc-400'} /> {title}
         </h3>
@@ -206,7 +206,7 @@ function ConfirmDialog({
           <button
             autoFocus
             onClick={onCancel}
-            className="bg-zinc-900 text-zinc-300 border border-white/[0.06] hover:bg-zinc-800 rounded-lg px-3 py-2 text-xs font-medium transition-colors"
+            className="bg-dark-800 text-zinc-300 border border-white/[0.06] hover:bg-dark-700 rounded-lg px-3 py-2 text-xs font-medium transition-colors"
           >
             Cancel
           </button>

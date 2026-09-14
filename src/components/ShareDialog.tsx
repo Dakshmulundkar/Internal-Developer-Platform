@@ -90,7 +90,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ entityType, entityId, 
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-[#0a0a0a] border border-white/[0.08] rounded-2xl w-[460px] max-w-[95vw] overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="bg-dark-900 glass border border-white/[0.08] rounded-2xl w-[460px] max-w-[95vw] overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] bg-white/[0.02]">
           <div className="flex items-center gap-2.5">
             <span className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-500/20 to-blue-500/10 border border-cyan-500/20 flex items-center justify-center">

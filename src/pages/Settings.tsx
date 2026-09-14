@@ -416,7 +416,7 @@ const [inviteEmail, setInviteEmail] = useState('');
               {/* Invite modal */}
               {showInviteModal && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-                  <div className="bg-[#050505] border border-white/[0.06] rounded-xl p-6 w-[420px] space-y-4">
+                  <div className="bg-dark-950 border border-white/[0.06] rounded-xl p-6 w-[420px] space-y-4">
                     <div className="flex items-center justify-between">
                       <h4 className="text-sm font-semibold text-white">Invite Team Member</h4>
                       <button type="button" onClick={() => { setShowInviteModal(false); setInviteEmail(''); setInviteRole('developer'); }} className="text-zinc-500 hover:text-zinc-300"><X size={16} /></button>
@@ -494,7 +494,7 @@ const [inviteEmail, setInviteEmail] = useState('');
 
                         <div className="flex justify-end gap-3 pt-2 border-t border-white/[0.06]">
                           <button type="button" onClick={() => { setShowInviteModal(false); setInviteEmail(''); setInviteRole('developer'); setInviteError(''); }}
-                            className="px-3 py-1.5 rounded bg-zinc-900 hover:bg-zinc-800 border border-white/[0.06] text-zinc-300 text-xs font-medium">Cancel</button>
+                            className="px-3 py-1.5 rounded bg-dark-800 hover:bg-dark-700 border border-white/[0.06] text-zinc-300 text-xs font-medium">Cancel</button>
                           <button type="button" onClick={handleInvite} disabled={inviteSending}
                             className="px-3 py-1.5 rounded bg-white text-black hover:bg-zinc-200 text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
                             {inviteSending

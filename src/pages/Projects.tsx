@@ -139,7 +139,7 @@ export const Projects: React.FC = () => {
           </p>
           <button
             onClick={() => navigateTo('create-project')}
-            className="bg-zinc-900 hover:bg-zinc-800 border border-white/[0.06] text-zinc-200 font-medium py-1.5 px-3 rounded text-xs transition-all"
+            className="bg-dark-800 hover:bg-dark-700 border border-white/[0.06] text-zinc-200 font-medium py-1.5 px-3 rounded text-xs transition-all"
           >
             Register first service
           </button>
@@ -149,12 +149,13 @@ export const Projects: React.FC = () => {
           {filteredProjects.map((project) => (
             <div 
               key={project.id}
-              className={`bg-white/[0.03] border rounded-xl overflow-hidden transition-all hover:-translate-y-1 ${
+              className={`relative bg-white/[0.03] border rounded-xl overflow-hidden transition-all hover:-translate-y-1 ${
                 project.status === 'failed' 
                   ? 'border-red-500/20 hover:border-red-500/40' 
                   : 'border-white/[0.06] hover:border-white/10'
               }`}
             >
+              <div className="card-glow" style={{ background: project.status === 'failed' ? '#F87171' : '#3B82F6' }}></div>
               {/* Card Header */}
               <div className="p-5 border-b border-white/[0.06]">
                 <div className="flex justify-between items-start gap-2 mb-2">
@@ -170,7 +171,7 @@ export const Projects: React.FC = () => {
               </div>
 
               {/* Card Meta Body */}
-              <div className="p-5 space-y-3 bg-white/[0.01]">
+              <div className="p-5 space-y-3 bg-white/[0.02]">
                 {/* Repository details */}
                 <div className="flex justify-between text-xs">
                   <span className="text-zinc-500">Repository</span>

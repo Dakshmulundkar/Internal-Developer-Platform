@@ -436,7 +436,7 @@ export const Incidents: React.FC = () => {
         <h2 className="text-xl font-semibold text-white tracking-tight">{selectedIncident.title}</h2>
         <button
           onClick={() => setShowShare(true)}
-          className="ml-auto flex items-center gap-1.5 bg-zinc-900 text-zinc-300 border border-white/[0.06] text-xs font-medium px-3 py-1.5 rounded-md transition-all hover:bg-zinc-800"
+          className="ml-auto flex items-center gap-1.5 bg-dark-800 text-zinc-300 border border-white/[0.06] text-xs font-medium px-3 py-1.5 rounded-md transition-all hover:bg-dark-700"
         >
           <Share2 size={12} /> Share
         </button>
@@ -477,7 +477,7 @@ export const Incidents: React.FC = () => {
           {activeTab === 'overview' && (
             <>
               {/* Task 7a — Incident Details KV card */}
-              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
+              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 relative overflow-hidden">
                 <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider mb-4">Incident Details</h4>
                 <div className="space-y-0 divide-y divide-white/[0.06]">
                   {[
@@ -534,7 +534,7 @@ export const Incidents: React.FC = () => {
 
               {/* Security Context — shown only for security triage incidents */}
               {selectedIncident.securityMetadata && Object.keys(selectedIncident.securityMetadata).length > 0 && (
-                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-4">
+                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-4 relative overflow-hidden">
                   <div className="flex items-center gap-2 mb-1">
                     <Shield size={13} className="text-purple-400" />
                     <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Security Context</h4>
@@ -663,7 +663,7 @@ export const Incidents: React.FC = () => {
 
               {/* Task 7c — Related Alerts */}
               {relatedAlerts.length > 0 && (
-                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
+                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 relative overflow-hidden">
                   <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider mb-3">Related Alerts</h4>
                   <div className="space-y-2">
                     {relatedAlerts.map(alert => (
@@ -705,7 +705,7 @@ export const Incidents: React.FC = () => {
                   { label: 'Occurrences', value: occurrences, color: 'text-zinc-200' },
                   { label: 'Open Incidents', value: openIncidents, color: 'text-amber-400' },
                 ].map(stat => (
-                  <div key={stat.label} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+                  <div key={stat.label} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 relative overflow-hidden">
                     <div className={`text-2xl font-bold font-mono ${stat.color}`}>{stat.value}</div>
                     <div className="text-[10px] text-zinc-500 mt-1">{stat.label}</div>
                   </div>
@@ -717,7 +717,7 @@ export const Incidents: React.FC = () => {
               {projectDeploys.length === 0 ? (
                 <p className="text-xs text-zinc-600 italic">No deployments found for this project.</p>
               ) : (
-                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
+                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl relative overflow-hidden">
                   <table className="w-full text-left text-xs">
                     <thead>
                       <tr className="border-b border-white/[0.06]">
@@ -767,7 +767,7 @@ export const Incidents: React.FC = () => {
 
           {/* ── FEEDBACK TAB — Task 9 ── */}
           {activeTab === 'feedback' && (
-            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-5">
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 space-y-5 relative overflow-hidden">
               <div>
                 <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider mb-1">Feedback</h4>
                 <p className="text-xs text-zinc-500">Help improve incident detection accuracy by sharing your assessment.</p>
@@ -850,7 +850,7 @@ export const Incidents: React.FC = () => {
 
               {/* Task 10b — Comment input */}
               {selectedIncident.status !== 'resolved' && (
-                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 space-y-3">
+                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 space-y-3 relative overflow-hidden">
                   <MentionInput
                     value={commentText}
                     onChange={setCommentText}
@@ -961,7 +961,7 @@ export const Incidents: React.FC = () => {
                     Resolve <ChevronDown size={12} />
                   </button>
                   {resolveOpen && (
-                    <div className="absolute top-full left-0 mt-1 w-64 bg-[#0a0a0a] border border-white/[0.06] rounded-lg shadow-xl z-30">
+                    <div className="absolute top-full left-0 mt-1 w-64 bg-dark-900 glass border border-white/[0.06] rounded-lg shadow-xl z-30">
                       {[
                         'I confirmed and fixed the issue',
                         'I confirmed and this is not fixable now',
@@ -987,12 +987,12 @@ export const Incidents: React.FC = () => {
                 <div className="relative" ref={ignoreRef}>
                   <button
                     onClick={() => { setIgnoreOpen(!ignoreOpen); setResolveOpen(false); }}
-                    className="flex items-center gap-1.5 bg-zinc-900 text-zinc-300 border border-white/[0.06] text-xs font-medium px-3 py-1.5 rounded-md transition-all hover:bg-zinc-800"
+                    className="flex items-center gap-1.5 bg-dark-800 text-zinc-300 border border-white/[0.06] text-xs font-medium px-3 py-1.5 rounded-md transition-all hover:bg-dark-700"
                   >
                     Ignore <ChevronDown size={12} />
                   </button>
                   {ignoreOpen && (
-                    <div className="absolute top-full left-0 mt-1 w-64 bg-[#0a0a0a] border border-white/[0.06] rounded-lg shadow-xl z-30">
+                    <div className="absolute top-full left-0 mt-1 w-64 bg-dark-900 glass border border-white/[0.06] rounded-lg shadow-xl z-30">
                       {[
                         'This is a test deployment',
                         'This is a known flaky issue',
