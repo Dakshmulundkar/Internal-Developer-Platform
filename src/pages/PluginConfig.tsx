@@ -40,9 +40,9 @@ export const PluginConfig: React.FC = () => {
     return (
       <div className="text-center p-8 bg-white/[0.03] border border-white/[0.06] rounded-xl">
         <h3 className="text-sm font-semibold text-white mb-2">No plugin selected</h3>
-        <button onClick={() => navigateTo('integrations')}
+        <button onClick={() => navigateTo('settings')}
           className="bg-white text-black hover:bg-zinc-200 font-medium py-1.5 px-3 rounded text-xs">
-          Back to Integrations
+          Back to Settings
         </button>
       </div>
     );
@@ -99,10 +99,10 @@ export const PluginConfig: React.FC = () => {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       {/* Back */}
-      <button onClick={() => navigateTo('integrations')}
-        className="flex items-center gap-2 text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors">
-        <ArrowLeft size={14} />
-        Back to Integrations
+      <button onClick={() => navigateTo('settings')}
+        className="flex items-center gap-2 text-sm font-semibold text-zinc-300 hover:text-white transition-colors">
+        <ArrowLeft size={16} />
+        Back to Settings
       </button>
 
       {/* Header card */}

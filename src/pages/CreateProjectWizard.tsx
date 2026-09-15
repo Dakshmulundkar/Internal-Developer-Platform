@@ -104,10 +104,10 @@ export const CreateProjectWizard: React.FC = () => {
       {/* Back button */}
       <button
         onClick={() => navigateTo('projects')}
-        className="flex items-center gap-2 text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
+        className="flex items-center gap-2 text-sm font-semibold text-zinc-300 hover:text-white transition-colors"
       >
-        <ArrowLeft size={14} />
-        Back to projects catalog
+        <ArrowLeft size={16} />
+        Back to Projects
       </button>
 
       {/* Step Indicators */}

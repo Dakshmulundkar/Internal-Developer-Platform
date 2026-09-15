@@ -69,9 +69,14 @@ interface PlatformContextProps {
   activeDeploymentId: string | null;
   activeIncidentId: string | null;
   activePluginId: string | null;
+  activeSettingsCard: string | null;
+  
+  // Theme
+  theme: 'light' | 'dark' | 'system';
+  setTheme: (theme: 'light' | 'dark' | 'system') => void;
   
   // Navigation
-  navigateTo: (page: PageType, contextIds?: { projectId?: string; deploymentId?: string; incidentId?: string; pluginId?: string }) => void;
+  navigateTo: (page: PageType, contextIds?: { projectId?: string; deploymentId?: string; incidentId?: string; pluginId?: string; settingsCard?: string }) => void;
   
   // Auth Actions
   loginUser: (email: string, provider?: string) => Promise<void>;
@@ -293,6 +298,33 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [activePluginId, setActivePluginId] = useState<string | null>(() => {
     return storageGet('idp_active_plugin');
   });
+
+  const [activeSettingsCard, setActiveSettingsCard] = useState<string | null>(null);
+
+  // Theme state - persisted to localStorage
+  const [theme, setThemeState] = useState<'light' | 'dark' | 'system'>(() => {
+    const saved = localStorage.getItem('aether-theme');
+    return (saved === 'light' || saved === 'dark' || saved === 'system') ? saved : 'dark';
+  });
+
+  // Apply theme class to <html> and persist to localStorage
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.remove('light', 'dark');
+    
+    if (theme === 'system') {
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      root.classList.add(prefersDark ? 'dark' : 'light');
+    } else {
+      root.classList.add(theme);
+    }
+    
+    localStorage.setItem('aether-theme', theme);
+  }, [theme]);
+
+  const setTheme = (newTheme: 'light' | 'dark' | 'system') => {
+    setThemeState(newTheme);
+  };
 
   // WebSocket ref for real-time updates
   const wsRef = useRef<WebSocket | null>(null);
@@ -618,7 +650,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Navigation Helper
-  const navigateTo = (page: PageType, contextIds?: { projectId?: string; deploymentId?: string; incidentId?: string; pluginId?: string }) => {
+  const navigateTo = (page: PageType, contextIds?: { projectId?: string; deploymentId?: string; incidentId?: string; pluginId?: string; settingsCard?: string }) => {
     // Route guard — bounce to login if no user and trying to access protected page
     if (!user && page !== 'login') {
       setCurrentPage('login');
@@ -640,6 +672,11 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (contextIds?.pluginId) {
       setActivePluginId(contextIds.pluginId);
       storageSet('idp_active_plugin', contextIds.pluginId);
+    }
+    if (contextIds?.settingsCard) {
+      setActiveSettingsCard(contextIds.settingsCard);
+    } else {
+      setActiveSettingsCard(null);
     }
     
     setCurrentPage(page);
@@ -2230,6 +2267,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       activeDeploymentId,
       activeIncidentId,
       activePluginId,
+      activeSettingsCard,
       navigateTo,
       loginUser,
       logoutUser,
@@ -2258,7 +2296,9 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       declineTeamInvite,
       pendingInvites,
       refreshPendingInvites,
-      triggerWebhookSimulation
+      triggerWebhookSimulation,
+      theme,
+      setTheme
     }}>
       {children}
     </PlatformContext.Provider>

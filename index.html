@@ -8,6 +8,13 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (function() {
+        var t = localStorage.getItem('aether-theme');
+        var d = t === 'light' ? 'light' : t === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : 'dark';
+        document.documentElement.classList.add(d);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

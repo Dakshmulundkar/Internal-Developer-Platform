@@ -87,10 +87,10 @@ export const DeploymentDetails: React.FC = () => {
       {/* Back button */}
       <button
         onClick={() => navigateTo('deployments')}
-        className="flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-zinc-200 transition-colors"
+        className="flex items-center gap-2 text-sm font-semibold text-zinc-300 hover:text-white transition-colors"
       >
-        <ArrowLeft size={14} />
-        Back to deployments
+        <ArrowLeft size={16} />
+        Back to Deployments
       </button>
 
       {/* Summary grid */}

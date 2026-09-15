@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { InviteBanner } from './components/InviteBanner';
 import { SearchModal } from './components/SearchModal';
+import { AIAssistantFAB } from './components/AIAssistantFAB';
 
 // Login is small and on the critical path — keep it synchronous
 import { Login } from './pages/Login';
@@ -89,6 +90,7 @@ const AppContent: React.FC = () => {
         </main>
       </div>
       <SearchModal />
+      <AIAssistantFAB />
     </div>
   );
 };

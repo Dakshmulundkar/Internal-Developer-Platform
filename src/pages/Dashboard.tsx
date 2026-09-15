@@ -290,18 +290,26 @@ export const Dashboard: React.FC = () => {
         ];
 
         return (
-          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 stagger-children">
             {cards.map((card, idx) => {
               const Icon = card.icon;
+              const accentBg =
+                card.color === 'text-blue-400'   ? 'rgba(59,130,246,0.15)' :
+                card.color === 'text-red-400'    ? 'rgba(248,113,113,0.15)' :
+                card.color === 'text-amber-400'  ? 'rgba(251,191,36,0.15)' :
+                card.color === 'text-violet-400' ? 'rgba(139,92,246,0.15)' :
+                'rgba(148,163,184,0.12)';
               return (
                 <div key={card.label} onClick={() => navigateTo(card.page)} style={{ animationDelay: `${idx * 60}ms` }}
-                  className="relative overflow-hidden border border-white/[0.06] hover:border-white/20 p-4 rounded-xl cursor-pointer transition-all group animate-slide-up">
-                  <div className="card-glow" style={{ background: card.color === 'text-zinc-400' ? '#71717a' : card.color === 'text-blue-400' ? '#3B82F6' : card.color === 'text-red-400' ? '#F87171' : card.color === 'text-amber-400' ? '#FBBF24' : card.color === 'text-violet-400' ? '#8B5CF6' : '#3B82F6' }}></div>
+                  className="kpi-card p-4 cursor-pointer transition-all group animate-slide-up">
+                  <div className="card-glow" style={{ background: card.color === 'text-zinc-400' ? '#3B82F6' : card.color === 'text-blue-400' ? '#3B82F6' : card.color === 'text-red-400' ? '#F87171' : card.color === 'text-amber-400' ? '#FBBF24' : card.color === 'text-violet-400' ? '#8B5CF6' : '#3B82F6' }}></div>
                   <div className="flex justify-between items-start mb-3">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 leading-snug max-w-[80%]">{card.label}</span>
-                    <Icon size={14} className={card.color + (card.animate ? ' animate-pulse' : '')} />
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 leading-snug max-w-[70%]">{card.label}</span>
+                    <span className="rounded-xl p-2 shrink-0" style={{ background: accentBg }}>
+                      <Icon size={14} className={card.color + (card.animate ? ' animate-pulse' : '')} />
+                    </span>
                   </div>
-                  <div className={`text-2xl font-bold font-mono ${card.valueColor || 'text-white'}`}>{card.value}</div>
+                  <div className={`text-[32px] font-bold tracking-[-0.03em] font-mono leading-none ${card.valueColor || 'text-white'}`}>{card.value}</div>
                   <div className="text-[10px] text-zinc-500 mt-1.5 flex items-center gap-1 group-hover:text-zinc-400 transition-colors">
                     <span>{card.sub}</span>
                     <ArrowUpRight size={9} className="opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
@@ -315,7 +323,7 @@ export const Dashboard: React.FC = () => {
 
       case 'success':
         return (
-          <div className="relative overflow-hidden card-glow border border-white/[0.06] rounded-xl p-5 h-[280px]">
+          <div className="chart-card p-5 h-[280px]">
             <div className="card-glow" style={{ background: '#3B82F6' }}></div>
             <div className="flex justify-between items-center mb-4">
               <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Deployment Success Rate (%)</h4>
@@ -343,7 +351,7 @@ export const Dashboard: React.FC = () => {
 
       case 'incidentTrend':
         return (
-          <div className="relative overflow-hidden card-glow border border-white/[0.06] rounded-xl p-5 h-[280px]">
+          <div className="chart-card p-5 h-[280px]">
             <div className="card-glow" style={{ background: '#F87171' }}></div>
             <div className="flex justify-between items-center mb-4">
               <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Incident Activity</h4>
@@ -369,7 +377,7 @@ export const Dashboard: React.FC = () => {
 
       case 'alertTrend':
         return (
-          <div className="relative overflow-hidden card-glow border border-white/[0.06] rounded-xl p-5 h-[280px]">
+          <div className="chart-card p-5 h-[280px]">
             <div className="card-glow" style={{ background: '#FBBF24' }}></div>
             <div className="flex justify-between items-center mb-4">
               <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Monitoring Alert Trend</h4>
@@ -393,7 +401,7 @@ export const Dashboard: React.FC = () => {
 
       case 'audit':
         return (
-          <div className="relative overflow-hidden border border-white/[0.06] rounded-xl p-5">
+          <div className="chart-card p-5">
             <div className="flex justify-between items-center mb-4">
               <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Aether Platform Audit Trail</h4>
               <button onClick={() => navigateTo('notifications')} className="text-[10px] text-zinc-400 hover:text-zinc-200 hover:underline">Full logs</button>
@@ -429,7 +437,7 @@ export const Dashboard: React.FC = () => {
 
       case 'integrationHealth':
         return (
-          <div className="relative overflow-hidden border border-white/[0.06] rounded-xl p-5 h-[280px] flex flex-col">
+          <div className="chart-card p-5 h-[280px] flex flex-col">
             <div className="flex justify-between items-center mb-3">
               <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Integration Health</h4>
               <span className="text-[10px] text-zinc-500 font-mono">
@@ -484,7 +492,7 @@ export const Dashboard: React.FC = () => {
 
       case 'serviceHealth':
         return (
-          <div className="relative overflow-hidden border border-white/[0.06] rounded-xl p-5">
+          <div className="chart-card p-5">
             <div className="flex justify-between items-center mb-4">
               <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Service Health</h4>
               <button onClick={() => navigateTo('monitoring')} className="text-[10px] text-zinc-400 hover:text-zinc-200 hover:underline">View all alerts →</button>
@@ -569,7 +577,7 @@ export const Dashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Jira-style Summary header */}
-      <div className="relative overflow-hidden border border-white/[0.06] rounded-xl p-5">
+      <div className="chart-card p-5">
         <div className="card-glow" style={{ background: '#3B82F6' }}></div>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5">
           <div>
@@ -630,9 +638,10 @@ export const Dashboard: React.FC = () => {
             },
           ].map((stat, i) => (
             <div key={i} onClick={stat.onClick}
-              className="bg-white/[0.02] border border-white/[0.06] hover:bg-white/[0.04] rounded-xl p-4 cursor-pointer transition-all group">
+              className="kpi-card p-4 cursor-pointer transition-all group">
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-white/[0.03] border border-white/[0.06] flex items-center justify-center shrink-0 mt-0.5">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
+                  style={{ background: i === 1 ? 'rgba(59,130,246,0.15)' : i === 2 && openIncidents > 0 ? 'rgba(248,113,113,0.15)' : i === 3 && firingAlerts > 0 ? 'rgba(251,191,36,0.15)' : 'rgba(148,163,184,0.12)' }}>
                   {stat.icon}
                 </div>
                 <div>

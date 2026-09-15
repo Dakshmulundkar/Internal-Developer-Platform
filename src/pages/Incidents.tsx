@@ -423,9 +423,9 @@ export const Incidents: React.FC = () => {
       {/* Task 6a — Back button */}
       <button
         onClick={() => { setSelectedId(null); setActiveTab('overview'); }}
-        className="flex items-center gap-2 text-xs text-zinc-500 hover:text-zinc-200 mb-4 transition-colors"
+        className="flex items-center gap-2 text-sm font-semibold text-zinc-300 hover:text-white transition-colors"
       >
-        <ArrowLeft size={14} /> Back to incidents
+        <ArrowLeft size={16} /> Back to Incidents
       </button>
 
       {/* Task 6b — Title row */}

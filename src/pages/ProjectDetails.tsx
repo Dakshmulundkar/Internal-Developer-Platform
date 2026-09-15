@@ -124,7 +124,7 @@ export const ProjectDetails: React.FC = () => {
       {/* Back */}
       <button onClick={() => navigateTo('projects')}
         className="flex items-center gap-2 text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors">
-        <ArrowLeft size={14} />Back to projects catalog
+        <ArrowLeft size={16} />Back to Projects
       </button>
 
       {/* Title row */}
