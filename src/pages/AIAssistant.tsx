@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import { isApiAvailable, api } from '../services/api';
 import { 
@@ -6,7 +6,6 @@ import {
   Info, Cpu
 } from 'lucide-react';
 import type { AIChatMessage } from '../types/platform';
-import { aiExplanations } from '../data/seedData';
 
 export const AIAssistant: React.FC = () => {
   const { 
@@ -31,12 +30,6 @@ export const AIAssistant: React.FC = () => {
     }
   ]);
   const [isTyping, setIsTyping] = useState(false);
-  const aiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Cleanup AI simulation timer on unmount
-  useEffect(() => {
-    return () => { if (aiTimerRef.current) clearTimeout(aiTimerRef.current); };
-  }, []);
 
   // Update deployment selections based on selected project
   const projectDeploys = deployments.filter(d => d.projectId === selectedProjId);
@@ -111,94 +104,28 @@ export const AIAssistant: React.FC = () => {
         setIsTyping(false);
         return;
       } catch (err) {
-        console.warn('[AI] api.ai.analyze failed, using fallback:', err);
-        const targetDeploy = deployments.find(d => d.id === selectedDeployId);
-        const targetIncident = incidents.find(i => i.id === selectedIncidentId);
-        const details = targetDeploy ? aiExplanations[targetDeploy.id] : null;
-
-        const fallbackResponse: AIChatMessage = {
+        console.warn('[AI] api.ai.analyze failed:', err);
+        const unavailable: AIChatMessage = {
           id: 'ma_' + Math.random().toString(36).substr(2, 9),
           sender: 'assistant',
-          content: details?.explanation || `I analyzed ${targetIncident?.title || targetDeploy?.projectName || 'the active deployment'}. Telemetry indicates a runtime error during package resolution or container startup. Recommended: verify environment configurations and check recent commit diffs.`,
-          confidenceScore: details?.confidenceScore || 88,
-          causes: details?.causes || [
-            'Missing or mismatched dependency in container environment',
-            'Connection timeout or upstream service unavailability',
-            'Undeclared environment variable in provider dashboard'
-          ],
-          recommendations: details?.recommendations || [
-            'Review deployment logs for specific stack traces',
-            'Verify environment configuration and database credentials',
-            'Execute one-click rollback to the previous stable release'
-          ],
+          content: 'Analysis is unavailable right now — the backend did not respond. Check that the API server is running and try again.',
           createdAt: new Date().toISOString(),
         };
-        setMessages(prev => [...prev, fallbackResponse]);
+        setMessages(prev => [...prev, unavailable]);
         setIsTyping(false);
         return;
       }
     }
 
-    // 2. Simulate AI Analysis trigger (demo mode)
-    if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
-    aiTimerRef.current = setTimeout(() => {
-      let aiResponse: Partial<AIChatMessage> = {
-        id: 'ma_' + Math.random().toString(36).substr(2, 9),
-        sender: 'assistant',
-        createdAt: new Date().toISOString(),
-        content: 'I have analyzed the current deployment log telemetry.'
-      };
-
-      // Custom Context matching
-      const targetDeploy = deployments.find(d => d.id === selectedDeployId);
-      const targetIncident = incidents.find(i => i.id === selectedIncidentId);
-
-      if (queryText.includes('Why did') || queryText.includes('fail') || queryText.includes('diagnose')) {
-        if (targetDeploy && targetDeploy.status === 'failed') {
-          const details = aiExplanations[targetDeploy.id];
-          if (details) {
-            aiResponse.content = `I have diagnosed the compiler logs for version ${targetDeploy.version}.`;
-            aiResponse.confidenceScore = details.confidenceScore;
-            aiResponse.causes = details.causes;
-            aiResponse.recommendations = details.recommendations;
-            aiResponse.content += `\n\n${details.explanation}`;
-          } else {
-            aiResponse.content = `The deployment ${targetDeploy.version} is showing a failed state. The logs indicate a connection timeout during environment propagation. Please verify API access keys in settings.`;
-            aiResponse.confidenceScore = 75;
-            aiResponse.recommendations = ['Verify Vercel integration keys.', 'Re-dispatch webhook push.'];
-          }
-        } else {
-          aiResponse.content = 'The currently selected deployment runs are reporting healthy stability statuses (Ready). No compiler compile warnings detected.';
-          aiResponse.confidenceScore = 99;
-        }
-      } else if (queryText.includes('incident') || queryText.includes('Incident') || queryText.includes('Summarize')) {
-        if (targetIncident) {
-          aiResponse.content = `Incident "${targetIncident.title}" is currently flagged as ${targetIncident.status.toUpperCase()} severity ${targetIncident.severity.toUpperCase()}.`;
-          aiResponse.content += `\n\nIt was triggered by a build failure in deployment ${targetIncident.deploymentId || 'N/A'}. Let me list the suggested resolution actions:`;
-          aiResponse.recommendations = [
-            targetIncident.suggestedAction || 'Verify environment credentials settings.',
-            'Collaborate with developers inside Discussion comments feed.',
-            'Run a rollback to a stable target candidate.'
-          ];
-          aiResponse.confidenceScore = 90;
-        } else {
-          aiResponse.content = 'No active incident alert context selected. Select a project and incident from the filters to review metrics.';
-          aiResponse.confidenceScore = 95;
-        }
-      } else {
-        aiResponse.content = `I understand you are asking: "${queryText}". As an integration co-pilot, I monitor deployment health. Let me suggest common steps:`;
-        aiResponse.recommendations = [
-          'Navigate to Projects to review logs metrics.',
-          'Verify webhook connection signature validity settings.',
-          'Inspect recent rollbacks audit events logs.'
-        ];
-        aiResponse.confidenceScore = 80;
-      }
-
-      setMessages(prev => [...prev, aiResponse as AIChatMessage]);
-      setIsTyping(false);
-      aiTimerRef.current = null;
-    }, 2000);
+    // Backend unavailable — say so instead of simulating an answer.
+    setIsTyping(false);
+    const offline: AIChatMessage = {
+      id: 'ma_' + Math.random().toString(36).substr(2, 9),
+      sender: 'assistant',
+      content: 'The AI backend is not connected. Start the API server to enable diagnostics.',
+      createdAt: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, offline]);
   };
 
   const sampleQuestions = [

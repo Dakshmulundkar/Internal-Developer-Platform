@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import {
-  ArrowLeft, Github, ExternalLink, RefreshCw, AlertTriangle,
+  ArrowLeft, Github, ExternalLink, RefreshCw,
   History, CheckCircle2, ChevronRight, HelpCircle, GitMerge,
   Activity, Bug, Server, Users, ChevronDown, ChevronUp, Plus, X, Share2
 } from 'lucide-react';
-import { mockArgoCDStatus } from '../data/seedData';
 import { ShareDialog } from '../components/ShareDialog';
 import { alertSourceColor, alertSourceLabel } from '../lib/alertUtils';
 import type { DeploymentStatus, IncidentSeverity, ProjectRole } from '../types/platform';
@@ -40,12 +39,6 @@ const roleBadge = (role: ProjectRole) => {
   return 'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 text-[9px] px-2 py-0.5 rounded font-mono';
 };
 
-const argoCDSyncBadge = (s: string) => {
-  if (s === 'Synced')    return 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
-  if (s === 'OutOfSync') return 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
-  return 'bg-red-500/10 text-red-400 border border-red-500/20';
-};
-
 export const ProjectDetails: React.FC = () => {
   const {
     activeProjectId, projects, deployments, incidents, navigateTo,
@@ -55,7 +48,6 @@ export const ProjectDetails: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<ProjectTab>('overview');
   const [expandedIssueId, setExpandedIssueId] = useState<string | null>(null);
-  const [syncTriggered, setSyncTriggered] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -415,56 +407,22 @@ export const ProjectDetails: React.FC = () => {
       {/* ── INFRASTRUCTURE TAB ── */}
       {activeTab === 'infrastructure' && (
         <div className="space-y-4">
-          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
-            <div className="flex justify-between items-center mb-4">
-              <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Infrastructure</h4>
-              <span className={`text-[10px] font-bold font-mono px-2 py-0.5 rounded border flex items-center gap-1 ${argoCDSyncBadge(mockArgoCDStatus.syncStatus)}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${
-                  mockArgoCDStatus.syncStatus === 'Synced' ? 'bg-emerald-500 animate-ping' :
-                  mockArgoCDStatus.syncStatus === 'OutOfSync' ? 'bg-amber-500 animate-pulse' : 'bg-red-500'
-                }`}></span>
-                {mockArgoCDStatus.syncStatus}
-              </span>
-            </div>
-            <div className="space-y-0 divide-y divide-white/[0.06] mb-4">
-              {[
-                { label: 'Application', value: mockArgoCDStatus.appName },
-                { label: 'Sync Status', value: <span className={`text-[9px] font-mono font-semibold uppercase px-2 py-0.5 rounded border ${argoCDSyncBadge(mockArgoCDStatus.syncStatus)}`}>{mockArgoCDStatus.syncStatus}</span> },
-                { label: 'Health', value: mockArgoCDStatus.healthStatus },
-                { label: 'Image Tag', value: <span className="font-mono text-[11px]">{mockArgoCDStatus.currentImageTag}</span> },
-                { label: 'Last Synced', value: relTime(mockArgoCDStatus.lastSyncedAt) },
-                { label: 'Namespace', value: <span className="font-mono text-[11px]">{mockArgoCDStatus.namespace}</span> },
-                { label: 'Target Revision', value: mockArgoCDStatus.targetRevision },
-              ].map(row => (
-                <div key={row.label} className="flex justify-between items-center py-2.5 text-xs">
-                  <span className="text-zinc-500">{row.label}</span>
-                  <span className="text-zinc-200 text-right">{row.value}</span>
-                </div>
-              ))}
-            </div>
-            {syncTriggered && (
-              <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] p-2.5 rounded-lg mb-3 flex items-center gap-2">
-                <CheckCircle2 size={12} />Sync triggered. ArgoCD will apply changes within ~30s.
-              </div>
-            )}
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setSyncTriggered(true);
-                  setTimeout(() => setSyncTriggered(false), 5000);
-                }}
-                className="bg-white text-black hover:bg-zinc-200 font-medium py-2 px-4 rounded-lg text-xs transition-all flex items-center gap-1.5">
-                <RefreshCw size={13} />Trigger Manual Sync
-              </button>
-              <button onClick={() => navigateTo('rollback-recovery', { projectId: project.id })}
-                className="bg-dark-800 text-zinc-300 border border-white/[0.06] hover:bg-dark-700 font-medium py-2 px-4 rounded-lg text-xs transition-all">
-                View Rollback History
-              </button>
-            </div>
+          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-8 text-center">
+            <GitMerge size={24} className="text-zinc-600 mx-auto mb-3" />
+            <p className="text-xs font-semibold text-zinc-300">No GitOps status yet</p>
+            <p className="text-[11px] text-zinc-500 mt-1 max-w-sm mx-auto">
+              Connect the ArgoCD plugin to stream application sync and health status here.
+            </p>
+            <button onClick={() => navigateTo('integrations')}
+              className="mt-4 bg-white text-black hover:bg-zinc-200 font-medium py-2 px-4 rounded-lg text-xs transition-all">
+              Configure Integrations
+            </button>
           </div>
-          <div className="bg-amber-500/5 border border-amber-500/20 text-amber-400 text-[10px] p-3 rounded-lg flex items-start gap-2">
-            <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-            <span>ArgoCD live data requires Phase 2 backend. Currently showing mock state for demonstration purposes.</span>
+          <div className="flex gap-3">
+            <button onClick={() => navigateTo('rollback-recovery', { projectId: project.id })}
+              className="bg-dark-800 text-zinc-300 border border-white/[0.06] hover:bg-dark-700 font-medium py-2 px-4 rounded-lg text-xs transition-all">
+              View Rollback History
+            </button>
           </div>
         </div>
       )}
