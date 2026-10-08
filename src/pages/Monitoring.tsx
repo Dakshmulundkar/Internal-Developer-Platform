@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { usePlatform } from '../context/PlatformContext';
-import { initialSentryIssues } from '../data/seedData';
 import { isApiAvailable, api } from '../services/api';
 import {
   Activity, Search, AlertTriangle, CheckCircle, Clock,
   ExternalLink, Bug, Filter, ChevronRight, ShieldAlert, Code,
   Zap, Play, RefreshCw
 } from 'lucide-react';
-import type { AlertSource, AlertSeverity, AlertStatus } from '../types/platform';
+import type { AlertSource, AlertSeverity, AlertStatus, SentryIssue } from '../types/platform';
 
 const severityColor = (s: AlertSeverity) => {
   switch (s) {
@@ -37,6 +36,24 @@ const sourceIcon = (source: AlertSource) => {
     case 'vercel':   return <span className={base + 'bg-white/5 text-zinc-300 border-white/[0.06]'}>VC</span>;
     case 'netlify':  return <span className={base + 'bg-teal-500/10 text-teal-400 border-teal-500/25'}>NF</span>;
     case 'datadog':  return <span className={base + 'bg-purple-500/10 text-purple-400 border-purple-500/25'}>DD</span>;
+    case 'uptimerobot': return <span className={base + 'bg-green-500/10 text-green-400 border-green-500/25'}>UR</span>;
+    case 'rollbar':  return <span className={base + 'bg-red-500/10 text-red-400 border-red-500/25'}>RB</span>;
+    case 'bugsnag':  return <span className={base + 'bg-pink-500/10 text-pink-400 border-pink-500/25'}>BG</span>;
+    case 'pagerduty': return <span className={base + 'bg-green-500/10 text-green-400 border-green-500/25'}>PD</span>;
+    case 'opsgenie': return <span className={base + 'bg-blue-500/10 text-blue-400 border-blue-500/25'}>OG</span>;
+    case 'prometheus': return <span className={base + 'bg-orange-500/10 text-orange-400 border-orange-500/25'}>PM</span>;
+    case 'elastic':  return <span className={base + 'bg-blue-500/10 text-blue-300 border-blue-500/25'}>EL</span>;
+    case 'dynatrace': return <span className={base + 'bg-teal-500/10 text-teal-400 border-teal-500/25'}>DT</span>;
+    case 'honeycomb': return <span className={base + 'bg-yellow-500/10 text-yellow-400 border-yellow-500/25'}>HC</span>;
+    case 'statuspage': return <span className={base + 'bg-blue-500/10 text-blue-400 border-blue-500/25'}>SP</span>;
+    case 'victorops': return <span className={base + 'bg-green-500/10 text-green-400 border-green-500/25'}>VO</span>;
+    case 'sonarqube': return <span className={base + 'bg-blue-500/10 text-blue-400 border-blue-500/25'}>SQ</span>;
+    case 'snyk':     return <span className={base + 'bg-violet-500/10 text-violet-400 border-violet-500/25'}>SK</span>;
+    case 'argocd':   return <span className={base + 'bg-orange-500/10 text-orange-400 border-orange-500/25'}>AC</span>;
+    case 'raygun':   return <span className={base + 'bg-orange-500/10 text-orange-400 border-orange-500/25'}>RG</span>;
+    case 'airbrake': return <span className={base + 'bg-red-500/10 text-red-400 border-red-500/25'}>AB</span>;
+    case 'kubernetes': return <span className={base + 'bg-blue-500/10 text-blue-400 border-blue-500/25'}>K8</span>;
+    case 'cloudwatch': return <span className={base + 'bg-amber-500/10 text-amber-400 border-amber-500/25'}>CW</span>;
     default:         return <span className={base + 'bg-white/5 text-zinc-400 border-white/[0.06]'}>{String(source).slice(0,2).toUpperCase()}</span>;
   }
 };
@@ -73,12 +90,12 @@ export const Monitoring: React.FC = () => {
       ? (vercelPlugin.projectSelector.startsWith('http')
           ? vercelPlugin.projectSelector
           : `https://${vercelPlugin.projectSelector.replace(/\.vercel\.app$/, '')}.vercel.app`)
-      : 'https://testing-mi-5f2c.vercel.app'
+      : ''
   );
   const [targetAppUrl, setTargetAppUrl] = useState(detectedUrl);
 
   useEffect(() => {
-    if (detectedUrl && (!targetAppUrl || targetAppUrl === 'https://testing-brown-delta.vercel.app')) {
+    if (detectedUrl && !targetAppUrl) {
       setTargetAppUrl(detectedUrl);
     }
   }, [detectedUrl]);
@@ -166,7 +183,9 @@ export const Monitoring: React.FC = () => {
 
   const monitoringAlerts = liveAlerts ?? contextAlerts;
 
-  const sentryIssues = isApiAvailable() ? [] : initialSentryIssues;
+  // Sentry issues arrive through the synced alerts stream; the dedicated
+  // issues endpoint is not yet wired, so this stays empty instead of faked.
+  const sentryIssues: SentryIssue[] = [];
 
   const firing   = monitoringAlerts.filter(a => a.status === 'firing').length;
   const resolved = monitoringAlerts.filter(a => a.status === 'resolved').length;
@@ -245,18 +264,27 @@ export const Monitoring: React.FC = () => {
                 type="text"
                 value={targetAppUrl}
                 onChange={e => setTargetAppUrl(e.target.value)}
-                placeholder="https://testing-mi-5f2c.vercel.app"
+                placeholder="https://your-app.vercel.app"
                 className="bg-transparent text-zinc-200 text-xs font-mono focus:outline-none w-52"
               />
             </div>
-            <a
-              href={targetAppUrl || "https://testing-mi-5f2c.vercel.app"}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs text-zinc-400 hover:text-zinc-200 flex items-center gap-1 border border-white/[0.06] px-2.5 py-1.5 rounded-lg hover:bg-white/[0.03] transition-all"
-            >
-              <ExternalLink size={12} /> Open Site
-            </a>
+            {targetAppUrl ? (
+              <a
+                href={targetAppUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-zinc-400 hover:text-zinc-200 flex items-center gap-1 border border-white/[0.06] px-2.5 py-1.5 rounded-lg hover:bg-white/[0.03] transition-all"
+              >
+                <ExternalLink size={12} /> Open Site
+              </a>
+            ) : (
+              <span
+                title="Set a target URL to open it"
+                className="text-xs text-zinc-600 flex items-center gap-1 border border-white/[0.06] px-2.5 py-1.5 rounded-lg cursor-not-allowed"
+              >
+                <ExternalLink size={12} /> Open Site
+              </span>
+            )}
             <button
               onClick={refreshAlerts}
               title="Refresh alerts"
@@ -372,6 +400,24 @@ export const Monitoring: React.FC = () => {
                 <option value="sentry">Sentry</option>
                 <option value="vercel">Vercel</option>
                 <option value="netlify">Netlify</option>
+                <option value="uptimerobot">UptimeRobot</option>
+                <option value="rollbar">Rollbar</option>
+                <option value="bugsnag">Bugsnag</option>
+                <option value="pagerduty">PagerDuty</option>
+                <option value="opsgenie">OpsGenie</option>
+                <option value="prometheus">Prometheus</option>
+                <option value="elastic">Elastic</option>
+                <option value="dynatrace">Dynatrace</option>
+                <option value="honeycomb">Honeycomb</option>
+                <option value="statuspage">Statuspage</option>
+                <option value="victorops">Splunk On-Call</option>
+                <option value="sonarqube">SonarQube</option>
+                <option value="snyk">Snyk</option>
+                <option value="argocd">ArgoCD</option>
+                <option value="raygun">Raygun</option>
+                <option value="airbrake">Airbrake</option>
+                <option value="kubernetes">Kubernetes</option>
+                <option value="cloudwatch">CloudWatch</option>
               </select>
               <select value={severityFilter} onChange={e => setSeverityFilter(e.target.value as AlertSeverity | 'all')}
                 className="bg-black/30 border border-white/[0.06] text-zinc-300 focus:outline-none focus:border-white/20 rounded-md p-2 text-xs">

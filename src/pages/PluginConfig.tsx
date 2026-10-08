@@ -4,7 +4,7 @@ import { pluginDefinitions } from '../data/seedData';
 import { api } from '../services/api';
 import {
   ArrowLeft, Save, RefreshCw, Trash2, AlertCircle, CheckCircle,
-  Eye, EyeOff, Link, Shield, Clock, Activity, Info
+  Eye, EyeOff, Link, Shield, Clock, Activity, Info, Send
 } from 'lucide-react';
 
 export const PluginConfig: React.FC = () => {
@@ -22,9 +22,18 @@ export const PluginConfig: React.FC = () => {
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState(installation?.baseUrl || '');
   const [projectSelector, setProjectSelector] = useState(installation?.projectSelector || '');
+  const [extraFields, setExtraFields] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      Object.entries((installation?.configData as Record<string, unknown>) || {})
+        .map(([k, v]) => [k, String(v ?? '')]),
+    ),
+  );
   const [showKey, setShowKey] = useState(false);
   const [selectedProjects, setSelectedProjects] = useState<string[]>(installation?.enabledForProjects || []);
   const [testState, setTestState] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [oauthBusy, setOauthBusy] = useState(false);
+  const [notifyState, setNotifyState] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
+  const [notifyMsg, setNotifyMsg] = useState('');
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
 
@@ -33,6 +42,12 @@ export const PluginConfig: React.FC = () => {
       setBaseUrl(installation.baseUrl || '');
       setProjectSelector(installation.projectSelector || '');
       setSelectedProjects(installation.enabledForProjects || []);
+      setExtraFields(
+        Object.fromEntries(
+          Object.entries((installation.configData as Record<string, unknown>) || {})
+            .map(([k, v]) => [k, String(v ?? '')]),
+        ),
+      );
     }
   }, [installation?.id]);
 
@@ -57,6 +72,7 @@ export const PluginConfig: React.FC = () => {
         api_key: apiKey || undefined,
         base_url: baseUrl || installation.baseUrl || undefined,
         project_selector: projectSelector || installation.projectSelector || undefined,
+        config_data: extraFields,
       });
       setTestState(result.success ? 'success' : 'error');
     } catch {
@@ -70,6 +86,7 @@ export const PluginConfig: React.FC = () => {
       baseUrl: baseUrl || undefined,
       projectSelector: projectSelector || undefined,
       enabledForProjects: selectedProjects,
+      ...(Object.keys(extraFields).length > 0 ? { configData: extraFields } : {}),
       ...(apiKey ? {
         apiKey,
         apiKeyHint: `${apiKey.slice(0, 4)}_••••••••••••••••••••${apiKey.slice(-4)}`,
@@ -196,21 +213,61 @@ export const PluginConfig: React.FC = () => {
 
           <div>
             <label className="block font-semibold text-zinc-400 mb-1.5">
-              {installation.pluginId === 'vercel' ? 'Vercel Project Name / ID' : 'Project / Service Selector'}
+              {installation.pluginId.replace(/^plugin-/, '') === 'vercel' ? 'Vercel Project Name / ID' : 'Project / Service Selector'}
             </label>
             <input type="text" value={projectSelector} onChange={e => setProjectSelector(e.target.value)}
-              placeholder={installation.pluginId === 'vercel' ? 'e.g. testing-brown-delta' : 'e.g. devcorp/my-service or org-id'}
+              placeholder={installation.pluginId.replace(/^plugin-/, '') === 'vercel' ? 'e.g. testing-brown-delta' : 'e.g. devcorp/my-service or org-id'}
               className="w-full bg-black/30 border border-white/[0.06] text-zinc-100 placeholder-zinc-600 focus:border-white/20 focus:outline-none rounded-md py-2.5 px-4 text-xs font-mono" />
           </div>
+
+          {(definition.configFields || []).map(field => (
+            <div key={field.key}>
+              <label className="block font-semibold text-zinc-400 mb-1.5">{field.label}</label>
+              {field.textarea ? (
+                <textarea rows={4} value={extraFields[field.key] || ''}
+                  onChange={e => setExtraFields(prev => ({ ...prev, [field.key]: e.target.value }))}
+                  placeholder={field.placeholder || ''}
+                  spellCheck={false}
+                  className="w-full bg-black/30 border border-white/[0.06] text-zinc-100 placeholder-zinc-600 focus:border-white/20 focus:outline-none rounded-md py-2.5 px-4 text-xs font-mono resize-y" />
+              ) : (
+                <input type={field.secret ? 'password' : 'text'}
+                  value={extraFields[field.key] || ''}
+                  onChange={e => setExtraFields(prev => ({ ...prev, [field.key]: e.target.value }))}
+                  placeholder={field.placeholder || ''}
+                  className="w-full bg-black/30 border border-white/[0.06] text-zinc-100 placeholder-zinc-600 focus:border-white/20 focus:outline-none rounded-md py-2.5 px-4 text-xs font-mono" />
+              )}
+              {field.help && <p className="text-[10px] text-zinc-600 mt-1">{field.help}</p>}
+            </div>
+          ))}
         </div>
 
         {/* Test connection */}
         <div className="pt-3 border-t border-white/[0.06]">
-          <button onClick={handleTestConnection}
-            className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-200 border border-white/[0.06] hover:border-white/10 px-3 py-1.5 rounded-lg transition-all">
-            <RefreshCw size={12} className={testState === 'testing' ? 'animate-spin' : ''} />
-            {testState === 'testing' ? 'Testing...' : 'Test Connection'}
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={handleTestConnection}
+              className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-200 border border-white/[0.06] hover:border-white/10 px-3 py-1.5 rounded-lg transition-all">
+              <RefreshCw size={12} className={testState === 'testing' ? 'animate-spin' : ''} />
+              {testState === 'testing' ? 'Testing...' : 'Test Connection'}
+            </button>
+            {(installation.pluginId === 'plugin-slack' || installation.pluginId === 'plugin-msteams') && (
+              <button
+                onClick={async () => {
+                  setOauthBusy(true);
+                  try {
+                    const provider = installation.pluginId === 'plugin-slack' ? 'slack' : 'teams';
+                    const { url } = await api.plugins.oauthStart(provider, installation.id);
+                    window.location.href = url;
+                  } catch {
+                    setOauthBusy(false);
+                  }
+                }}
+                disabled={oauthBusy}
+                className="flex items-center gap-1.5 text-xs font-medium text-zinc-200 bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.08] px-3 py-1.5 rounded-lg transition-all disabled:opacity-50">
+                <Link size={12} />
+                {oauthBusy ? 'Opening…' : installation.pluginId === 'plugin-slack' ? 'Connect with Slack' : 'Connect with Microsoft'}
+              </button>
+            )}
+          </div>
           {testState === 'success' && (
             <div className="mt-2 flex items-center gap-2 text-[11px] text-emerald-400 font-mono">
               <CheckCircle size={12} />
@@ -221,6 +278,42 @@ export const PluginConfig: React.FC = () => {
             <div className="mt-2 flex items-center gap-2 text-[11px] text-red-400 font-mono">
               <AlertCircle size={12} />
               Connection failed — check credentials or base URL.
+            </div>
+          )}
+          {definition.category === 'collaboration' && (
+            <div className="mt-2">
+              <button
+                onClick={async () => {
+                  setNotifyState('sending');
+                  setNotifyMsg('');
+                  try {
+                    const result = await api.plugins.notify(
+                      installation.id,
+                      'Test notification from Aether IDP',
+                      `If you received this, ${definition.name} delivery works.`,
+                    );
+                    setNotifyState(result.success ? 'success' : 'error');
+                    setNotifyMsg(result.message);
+                  } catch (err) {
+                    setNotifyState('error');
+                    setNotifyMsg(err instanceof Error ? err.message : 'Send failed.');
+                  }
+                }}
+                disabled={notifyState === 'sending'}
+                className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-200 border border-white/[0.06] hover:border-white/10 px-3 py-1.5 rounded-lg transition-all disabled:opacity-50">
+                <Send size={12} className={notifyState === 'sending' ? 'animate-pulse' : ''} />
+                {notifyState === 'sending' ? 'Sending…' : 'Send test notification'}
+              </button>
+              {notifyState === 'success' && (
+                <div className="mt-2 flex items-center gap-2 text-[11px] text-emerald-400 font-mono">
+                  <CheckCircle size={12} /> {notifyMsg || 'Delivered.'}
+                </div>
+              )}
+              {notifyState === 'error' && (
+                <div className="mt-2 flex items-center gap-2 text-[11px] text-red-400 font-mono">
+                  <AlertCircle size={12} /> {notifyMsg || 'Delivery failed.'}
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -1,7 +1,7 @@
 # Implementation Phases
 # Aether IDP — Internal Developer Platform
 
-**Version:** 1.5
+**Version:** 1.6
 **Last Updated:** September 2026
 
 ---
@@ -14,7 +14,15 @@ Phase 1      Phase 1.5        Phase 2 (Backend)      Phase 2 (Infra)
 Tasks 1–14   Tasks 43–55     Tasks 15–34            Tasks 35–42
 UI only      Plugin data     FastAPI + Supabase      Docker, K8s, ArgoCD
              + Team UX       + Real integrations
-✅ Complete  ✅ Complete      📋 Spec ready           📋 Spec ready
+✅ Complete  ✅ Complete      ✅ Implemented         📋 Spec ready
+```
+
+```
+Phase 3              Phase 4              Phase 5              Phase 6
+─────────────────    ─────────────────    ─────────────────    ─────────────────
+Plugin adapters      Security scanning    Free deploy          AI + honesty gaps
+Batches 0–4          Trivy + OSV          Netlify + Railway    (new work items)
+✅ Implemented       ✅ Implemented       ✅ Implemented       📋 Spec ready
 ```
 
 ---
@@ -325,9 +333,9 @@ const userProjectRole = teamMembers.find(
 
 ## Phase 2 — Real Backend Integration
 
-**Goal:** Replace all localStorage/seedData mock behavior with a real FastAPI + Supabase backend. The frontend demo mode must continue to work when `VITE_API_URL` is not set.
+**Goal:** Replace all localStorage/seedData mock behavior with a real FastAPI + Supabase backend.
 
-**Status:** 📋 Spec ready — not yet implemented
+**Status:** ✅ Implemented — all routers exist and are wired (`auth`, `projects`, `deployments`, `incidents`, `rollback`, `monitoring`, `plugins`, `notifications`, `audit`, `ai`, `team`, `comments`, `settings`, `search`, `scheduled-tasks`, `security`, `sharing`, `automation`, `activities`, `upload` + webhooks for vercel/netlify/grafana/github-security). Demo fallback retained when `VITE_API_URL` is unset.
 
 **Rule:** Phase 2 must not begin until Phase 1 + Phase 1.5 are fully verified. No UI changes are permitted during Phase 2 implementation.
 
@@ -375,16 +383,88 @@ const userProjectRole = teamMembers.find(
 
 ---
 
+## Phase 3 — Plugin Adapter System (Batches 0–4)
+
+**Goal:** Every catalog plugin gets a real backend — install + API key must actually fetch and work. No fake-success paths.
+
+**Status:** ✅ Implemented — `backend/services/plugins/` (`base.py` contract, `registry.py` dispatch with legacy-ID normalization, per-vendor adapters). `/plugins/test` and `plugin_sync` dispatch through it. Fernet-encrypted key storage (`FERNET_KEY`). Fixture suites: 117 pytest tests, no live keys.
+
+- Batch 0: framework + Sentry/Datadog/New Relic completion (real tests, config fields, sync).
+- Batch 1: 13 REST plugins — alert fetchers (UptimeRobot, Rollbar, Bugsnag, PagerDuty, OpsGenie), deploy fetchers (CircleCI, Render, Railway), verified tests (GitLab, Bitbucket, Jira, Linear, Discord).
+- Batch 2: 8 monitoring-depth plugins (Prometheus, Elastic, Dynatrace, Honeycomb, Statuspage, Splunk On-Call, SonarQube, Snyk) + Netlify real test.
+- Batch 3a: 10 CI/source plugins (Jenkins, TravisCI, TeamCity, Azure Repos, Azure Pipelines, Heroku, Terraform, ArgoCD, Raygun, Airbrake).
+- Batch 3b: hard auth — AWS SigV4 (CodeDeploy, CloudWatch), GCP service-account JWT, kubeconfig parsing, Slack/Microsoft OAuth routes + Connect buttons.
+- Batch 4: outbound delivery — `send()` on Slack/Discord/Teams/Jira/Linear, `POST /plugins/{id}/notify`, automatic incident fan-out (project-scoped, best-effort), Send-test button.
+
+---
+
+## Phase 4 — Security Scanning (Trivy + OSV)
+
+**Goal:** IDP-side vulnerability detection without a Docker daemon, plus free static dependency audit.
+
+**Status:** ✅ Implemented
+- `backend/services/trivy_service.py` — repo-tarball and image-ref scans, HIGH/CRITICAL gate, finding cap, open-incident dedupe, honest missing-binary/missing-repo outcomes.
+- Findings reuse `create_from_security_triage` unchanged.
+- `security_rescan` scheduler task type + `POST /security/scan/{project_id}` (project-RBAC gated).
+- OSV.dev manifest audit (npm/PyPI/Maven/Go/RubyGems) merged into project scans — pure HTTPS, no installs.
+
+---
+
+## Phase 5 — Free Deploy Compatibility (Netlify + Railway)
+
+**Goal:** Everything working locally must also work with the frontend on Netlify and the backend on Railway free tiers.
+
+**Status:** ✅ Implemented
+- `backend/Dockerfile`: pinned Trivy static binary, `$PORT`-respecting start, longer healthcheck grace for cold DB download.
+- `netlify.toml`: build config, SPA fallback, immutable asset caching (`VITE_API_URL` set in Netlify UI).
+- Explicitly deferred as opt-in: Playwright browser checks (feasible, too heavy for free-tier always-on). Rejected: `tsc`/ESLint scanning (needs user `node_modules`).
+
+---
+
+## Phase 6 — AI + Honesty Gaps (new work, not yet implemented)
+
+**Status:** 📋 Spec ready — do not present the items below as done.
+
+### Task 56 — Real rollback execution end-to-end
+**Gap:** `backend/services/rollback_service.py:115,247` — no provider token proceeds in simulated mode; status polling falls back to success on timeout. A rollback can report success without anything happening.
+**Do:** require a real provider token (fail closed with a clear error), poll actual provider state until terminal, remove the timeout-success path. Verify with a fixture test that asserts failure when no token exists.
+
+### Task 57 — AI chat with context and memory
+**Gap:** `backend/services/ai_service.py::analyze_incident` is single-shot — JSON context in, answer out. No conversation is persisted (no history table is written), so follow-up questions start from zero every time.
+**Do:** persist per-incident/per-project chat turns (new `ai_chat_messages` table or `ai_analyses` extension), feed the last N turns into the prompt, cap context length. Frontend keeps ephemeral state only — no frontend change needed beyond what exists.
+
+### Task 58 — AI-generated incident remediation steps
+**Gap:** `src/pages/Incidents.tsx::getRemediationSteps` parses canned `aiExplanations[deploymentId]` seed text with keyword→icon regexes. Steps are static fixtures, not generated for the incident at hand.
+**Do:** generate steps per incident from the backend (`analyze_incident` output or a dedicated `/incidents/{id}/remediation` endpoint) using live fields — error message, failed stage, provider, recent logs. Cache per incident; fall back to the current 3-step generic list only when the backend is unreachable, labeled as generic.
+
+### Task 59 — Sentry Issues tab has no backend
+**Gap:** `src/pages/Monitoring.tsx` hardcodes `sentryIssues = []` when the API is available. The tab renders "No issues" forever in production.
+**Do:** wire a real fetch (Sentry issues endpoint exists in `sentry_service.py`, currently only used by sync) or remove the tab until it exists.
+
+### Task 60 — Remaining honesty items (from audit, unowned)
+- OAuth `oauth`/`basic_auth` methods have no real UI flow beyond the Slack/Teams buttons.
+- ~16 catalog plugins are installable with tests that cannot pass until Batch 3-style backends land — badge them "coming soon" or gate install.
+- `FERNET_KEY` rotation story; per-plugin `refreshSeconds` (50 plugins × 30s polling won't scale); catalog-health admin view.
+- Demo/seed fallbacks still present across `PlatformContext` and pages; session persistence still JWT-only in the working tree.
+
+---
+
 ## Execution Order Summary
 
 ```
 Phase 1  → Tasks 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14
-                                                                            ✅
+                                                                             ✅
 Phase 1.5 → Tasks 43 → 44 → 45 → 46 → 47 → 48 → 49 → 50 → 51 → 52 → 53 → 54 → 55
-                                                                                  ✅
-Phase 2 Backend → 15 → 16 → 17 → 18 → 19 → 20 → 21 → 22 → 23 → 24 → 25 → 26 → 27 → 28 → 29 → 30 → 31 → 32 → 33 → 34
+                                                                                   ✅
+Phase 2 Backend → 15 → 16 → 17 → 18 → 19 → 20 → 21 → 22 → 23 → 24 → 25
+  → 26 → 27 → 28 → 29 → 30 → 31 → 32 → 33 → 34                                          ✅
 
 Phase 2 Infra   → 35 → 36 → 37 → 38 → 39 → 40 → 41 → 42
+
+Phase 3 Plugins → Batches 0 → 1 → 2 → 3a → 3b → 4                                      ✅
+Phase 4 Scanning → Trivy service → OSV audit → scheduler + scan endpoint              ✅
+Phase 5 Deploy → Dockerfile → netlify.toml → compat audit                             ✅
+Phase 6 Gaps → 56 → 57 → 58 → 59 → 60                                    📋 Spec ready
 ```
 
 ---
@@ -395,5 +475,9 @@ Phase 2 Infra   → 35 → 36 → 37 → 38 → 39 → 40 → 41 → 42
 |-------|-------|--------|
 | Phase 1 — Frontend UI | 1–14 | ✅ Complete |
 | Phase 1.5 — Team UX + Plugins | 43–55 | ✅ Complete |
-| Phase 2 — Backend Code | 15–34 | 📋 Spec Ready |
+| Phase 2 — Backend Code | 15–34 | ✅ Implemented |
 | Phase 2 — Infrastructure | 35–42 | 📋 Spec Ready |
+| Phase 3 — Plugin Adapters (B0–B4) | batches | ✅ Implemented |
+| Phase 4 — Security Scanning | trivy+OSV | ✅ Implemented |
+| Phase 5 — Free Deploy Compat | docker+netlify | ✅ Implemented |
+| Phase 6 — AI + Honesty Gaps | 56–60 | 📋 Spec Ready |

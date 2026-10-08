@@ -5,32 +5,30 @@ import type {
   DeploymentStatus, IncidentStatus, IncidentSeverity, ProviderType, EnvironmentType,
   PluginInstallation, MonitoringAlert, SentryIssue, TeamMember, ProjectRole, SecurityMetadata
 } from '../types/platform';
-import { 
-  currentUser as initialUser,
-  initialProjects,
-  initialDeployments,
-  initialIncidents,
-  initialRollbackOperations,
-  initialNotifications,
-  initialAuditLogs,
-  aiExplanations,
-  initialPluginInstallations,
-  initialMonitoringAlerts,
-  initialSentryIssues,
-  pluginDefinitions,
-  initialTeamMembers
+import {
+  pluginDefinitions
 } from '../data/seedData';
+import { avatarDataUri } from '../lib/avatar';
 
 function storageGet(key: string): string | null {
-  try { return storageGet(key); } catch { return null; }
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    return window.localStorage.getItem(key);
+  } catch { return null; }
 }
 
 function storageSet(key: string, value: string): void {
-  try { storageSet(key, value); } catch { /* ignore */ }
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    window.localStorage.setItem(key, value);
+  } catch { /* ignore (private mode / quota) */ }
 }
 
 function storageRemove(key: string): void {
-  try { storageRemove(key); } catch { /* ignore */ }
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    window.localStorage.removeItem(key);
+  } catch { /* ignore */ }
 }
 
 export type PageType = 
@@ -54,6 +52,8 @@ export type PageType =
 
 interface PlatformContextProps {
   user: User | null;
+  /** False until the stored session has been validated on boot. Gate routes on this. */
+  authReady: boolean;
   projects: Project[];
   deployments: Deployment[];
   incidents: Incident[];
@@ -141,112 +141,83 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const isApiMode = Boolean(import.meta.env.VITE_API_URL || import.meta.env.VITE_USE_API);
   const hasJwt = Boolean(storageGet('idp_jwt'));
 
-  // Load initial states from localStorage if available, else use seed data
+  // Load initial states from localStorage (backend is the source of truth).
   const [user, setUser] = useState<User | null>(() => {
-    // Only restore user if we have a valid JWT token (API mode)
-    // or if we're in demo mode (no VITE_API_URL)
-    const apiUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_USE_API;
-    if (apiUrl) {
-      // API mode — only restore if JWT exists and looks valid
-      const jwt = storageGet('idp_jwt');
-      if (!jwt) return null; // No token → go to login
-      // Basic JWT expiry check (decode payload, check exp)
-      try {
-        const payload = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-        if (payload.exp && payload.exp * 1000 < Date.now()) {
-          // Token expired — clear and go to login
-          storageRemove('idp_jwt');
-          storageRemove('idp_user');
-          return null;
-        }
-        // Token valid — restore user
-        const saved = storageGet('idp_user');
-        if (saved) {
-          try { return JSON.parse(saved); } catch { return null; }
-        }
-        return null;
-      } catch {
+    // Only restore user if we have a valid JWT token.
+    const jwt = storageGet('idp_jwt');
+    if (!jwt) return null; // No token → go to login
+    // Basic JWT expiry check (decode payload, check exp)
+    try {
+      const payload = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      if (payload.exp && payload.exp * 1000 < Date.now()) {
+        // Token expired — clear and go to login
         storageRemove('idp_jwt');
         storageRemove('idp_user');
         return null;
       }
+      // Token valid — restore user
+      const saved = storageGet('idp_user');
+      if (saved) {
+        try { return JSON.parse(saved); } catch { return null; }
+      }
+      return null;
+    } catch {
+      storageRemove('idp_jwt');
+      storageRemove('idp_user');
+      return null;
     }
-    // Demo mode — restore from localStorage
-    const saved = storageGet('idp_user');
-    if (saved) {
-      try { return JSON.parse(saved); } catch { /* ignore */ }
-    }
-    return null;
   });
 
   const [projects, setProjects] = useState<Project[]>(() => {
     const saved = storageGet('idp_projects');
-    if (isApiMode) return saved ? JSON.parse(saved) : [];
-    return saved ? JSON.parse(saved) : initialProjects;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [deployments, setDeployments] = useState<Deployment[]>(() => {
     const saved = storageGet('idp_deployments');
-    // Demo mode: never boot with an empty (or stale-cleared) pipeline — fall
-    // back to the seeded builds so the Pipeline Center always has stats.
-    if (!isApiMode) {
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-      return initialDeployments;
-    }
     return saved ? JSON.parse(saved) : [];
   });
 
   const [incidents, setIncidents] = useState<Incident[]>(() => {
     const saved = storageGet('idp_incidents');
-    if (isApiMode) return saved ? JSON.parse(saved) : [];
-    return saved ? JSON.parse(saved) : initialIncidents;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [securityIncidents, setSecurityIncidents] = useState<Incident[]>(() => {
     const saved = storageGet('idp_security_incidents');
-    if (isApiMode) return saved ? JSON.parse(saved) : [];
-    if (saved) return JSON.parse(saved);
-    return initialIncidents.filter(i => i.source === 'security_triage');
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [rollbackOperations, setRollbackOperations] = useState<RollbackOperation[]>(() => {
     const saved = storageGet('idp_rollbacks');
-    if (isApiMode) return saved ? JSON.parse(saved) : [];
-    return saved ? JSON.parse(saved) : initialRollbackOperations;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [notifications, setNotifications] = useState<Notification[]>(() => {
     const saved = storageGet('idp_notifications');
-    if (isApiMode) return saved ? JSON.parse(saved) : [];
-    return saved ? JSON.parse(saved) : initialNotifications;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => {
     const saved = storageGet('idp_audit');
-    if (isApiMode) return saved ? JSON.parse(saved) : [];
-    return saved ? JSON.parse(saved) : initialAuditLogs;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [pluginInstallations, setPluginInstallations] = useState<PluginInstallation[]>(() => {
     const saved = storageGet('idp_plugins');
-    if (isApiMode) return saved ? JSON.parse(saved) : [];
-    return saved ? JSON.parse(saved) : initialPluginInstallations;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [monitoringAlerts, setMonitoringAlerts] = useState<MonitoringAlert[]>(() => {
     const saved = storageGet('idp_alerts');
-    if (isApiMode) return saved ? JSON.parse(saved) : [];
-    return saved ? JSON.parse(saved) : initialMonitoringAlerts;
+    return saved ? JSON.parse(saved) : [];
   });
 
-  const [sentryIssues] = useState<SentryIssue[]>(() => isApiMode ? [] : initialSentryIssues);
+  const [sentryIssues] = useState<SentryIssue[]>(() => []);
 
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>(() => {
     const saved = storageGet('idp_team');
-    return saved ? JSON.parse(saved) : initialTeamMembers;
+    return saved ? JSON.parse(saved) : [];
   });
 
   // Pending invites for the currently logged-in user
@@ -256,29 +227,20 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [currentPage, setCurrentPage] = useState<PageType>(() => {
     // Determine if we have a valid session synchronously, without async work
     const jwt = storageGet('idp_jwt');
-    const apiUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_USE_API;
     const savedPage = storageGet('idp_page') as PageType;
 
     // Validate the saved page is a real page, not 'login'
     const isValidPage = (p: string | null): p is PageType =>
       !!p && p !== 'login' && p !== 'null';
 
-    if (apiUrl) {
-      // API mode: only restore page if JWT exists AND is not expired
-      if (jwt) {
-        try {
-          const payload = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-          if (!payload.exp || payload.exp * 1000 > Date.now()) {
-            return isValidPage(savedPage) ? savedPage : 'dashboard';
-          }
-        } catch { /* invalid jwt */ }
-      }
-      return 'login';
-    }
-    // Demo mode: restore if saved user exists
-    const savedUser = storageGet('idp_user');
-    if (savedUser && savedUser !== 'null') {
-      return isValidPage(savedPage) ? savedPage : 'dashboard';
+    // Only restore page if JWT exists AND is not expired
+    if (jwt) {
+      try {
+        const payload = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        if (!payload.exp || payload.exp * 1000 > Date.now()) {
+          return isValidPage(savedPage) ? savedPage : 'dashboard';
+        }
+      } catch { /* invalid jwt */ }
     }
     return 'login';
   });
@@ -300,6 +262,14 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   });
 
   const [activeSettingsCard, setActiveSettingsCard] = useState<string | null>(null);
+
+  // Auth hydration gate — optimistic: a synchronously-restorable session
+  // renders immediately (no spinner), server validation runs in background.
+  const [authReady, setAuthReady] = useState(() => {
+    const apiUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_USE_API;
+    if (apiUrl) return Boolean(storageGet('idp_jwt'));
+    return Boolean(storageGet('idp_user'));
+  });
 
   // Theme state - persisted to localStorage
   const [theme, setThemeState] = useState<'light' | 'dark' | 'system'>(() => {
@@ -325,6 +295,66 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const setTheme = (newTheme: 'light' | 'dark' | 'system') => {
     setThemeState(newTheme);
   };
+
+  // ── Session persistence: every in-memory user change is mirrored to
+  // localStorage so a hard reload can rehydrate. Logout removes it explicitly.
+  useEffect(() => {
+    if (user) {
+      try { storageSet('idp_user', JSON.stringify(user)); } catch { /* ignore */ }
+    }
+  }, [user]);
+
+  // ── Boot hydration (background): the router already rendered optimistically
+  // from cache above; this only validates the stored JWT against the backend.
+  // 401 (after the client's automatic silent-refresh attempt) means the session
+  // is really dead → clear. Any other failure (backend down, offline) keeps
+  // the cached user.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (isApiMode && storageGet('idp_jwt')) {
+          await ensureValidSession().catch(() => undefined);
+          const me = await api.auth.me().catch((err: unknown) => {
+            const status = (err as Error & { status?: number })?.status;
+            if (status === 401 && !cancelled) {
+              storageRemove('idp_jwt');
+              storageRemove('idp_refresh_token');
+              storageRemove('idp_user');
+              setUser(null);
+              setCurrentPage('login');
+            }
+            return null;
+          }) as Record<string, unknown> | null;
+          if (me && !cancelled && (me.id || me.email)) {
+            setUser(prev => {
+              const base = prev ?? {
+                id: 'u_api',
+                name: 'Developer',
+                email: '',
+                avatarUrl: avatarDataUri('Developer'),
+                role: 'admin' as const,
+                connectedGithub: '',
+                connectedVercel: false,
+                connectedNetlify: false,
+              };
+              return {
+                ...base,
+                id: String(me.id ?? base.id),
+                email: String(me.email ?? base.email),
+                name: String((me.name ?? me.full_name ?? base.name) as string),
+                avatarUrl: String((me.avatar_url ?? base.avatarUrl) as string),
+                role: ((me.role as User['role']) ?? base.role),
+              };
+            });
+          }
+        }
+      } finally {
+        if (!cancelled) setAuthReady(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // WebSocket ref for real-time updates
   const wsRef = useRef<WebSocket | null>(null);
@@ -400,7 +430,48 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     securityConfig: r.security_config as Record<string, unknown> | undefined,
   });
 
-  const mapRemoteDeployment = (r: Record<string, unknown>, projectName?: string): Deployment => ({
+  const mapRemoteDeployment = (r: Record<string, unknown>, projectName?: string): Deployment => {
+    // stages/logs may arrive as JSON strings (text columns) or malformed rows —
+    // normalize so a single bad row can never blank the pipelines page.
+    let stages: Deployment['stages'] = undefined;
+    const rawStages = r.stages;
+    if (typeof rawStages === 'string') {
+      try {
+        const parsed: unknown = JSON.parse(rawStages);
+        if (Array.isArray(parsed)) {
+          stages = parsed
+            .filter((s): s is { name: string; status: string; durationMs: number } =>
+              !!s && typeof s === 'object' && typeof (s as { name?: unknown }).name === 'string')
+            .map(s => ({
+              name: String(s.name),
+              status: (['pending', 'running', 'success', 'failed'] as string[]).includes(String(s.status))
+                ? String(s.status) as 'pending' | 'running' | 'success' | 'failed'
+                : 'pending' as const,
+              durationMs: Number(s.durationMs) || 0,
+            }));
+        }
+      } catch { /* keep undefined → UI falls back to defaults */ }
+    } else if (Array.isArray(rawStages)) {
+      stages = rawStages
+        .filter(s => !!s && typeof s === 'object' && typeof (s as { name?: unknown }).name === 'string')
+        .map(s => {
+          const o = s as { name?: unknown; status?: unknown; durationMs?: unknown };
+          return {
+            name: String(o.name),
+            status: (['pending', 'running', 'success', 'failed'] as string[]).includes(String(o.status))
+              ? String(o.status) as 'pending' | 'running' | 'success' | 'failed'
+              : 'pending' as const,
+            durationMs: Number(o.durationMs) || 0,
+          };
+        });
+    }
+    let logs: string[] | undefined = undefined;
+    if (typeof r.logs === 'string') {
+      logs = r.logs.split('\n');
+    } else if (Array.isArray(r.logs)) {
+      logs = r.logs.filter((l): l is string => typeof l === 'string');
+    }
+    return {
     id: r.id as string,
     projectId: (r.project_id as string) || '',
     projectName: projectName || (r.project_id as string) || '',
@@ -416,7 +487,10 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     createdAt: (r.created_at as string) || new Date().toISOString(),
     url: r.url as string | undefined,
     errorMessage: r.error_message as string | undefined,
-  });
+    stages,
+    logs,
+  };
+  };
 
   const mapRemoteIncident = (r: Record<string, unknown>): Incident => ({
     id: r.id as string,
@@ -477,6 +551,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       installedAt: (r.created_at as string) || new Date().toISOString(),
       installedById: (r.installed_by as string) || '',
       enabledForProjects: (r.enabled_for_projects as string[]) || [],
+      configData: cfg,
     };
   };
 
@@ -815,8 +890,11 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const isGitHubOAuth = passwordOrProvider === 'GitHubOAuth';
     const isGoogle = passwordOrProvider === 'Google';
 
-    if (isApiAvailable()) {
-      // API mode — real authentication only, no demo fallback
+    if (!isApiAvailable()) {
+      throw new Error('Backend unreachable. Start the API server and try again.');
+    }
+    {
+      // Real authentication only — no demo fallback
       try {
         if (isGoogle) {
           alert('Google login is not configured yet. Please use email/password or GitHub.');
@@ -843,7 +921,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             id: 'gh_oauth_' + ghUsername,
             name: ghName,
             email: ghEmail,
-            avatarUrl: ghAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&h=80&q=80',
+            avatarUrl: ghAvatar || avatarDataUri(ghName),
             role: 'admin',
             connectedGithub: ghUsername,
             connectedVercel: false,
@@ -878,7 +956,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             id: ghResult.user.id,
             name: ghResult.user.name || ghResult.github_username || 'Developer',
             email: ghResult.user.email,
-            avatarUrl: ghResult.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&h=80&q=80',
+            avatarUrl: ghResult.avatar_url || avatarDataUri(ghResult.user.name || ghResult.github_username || 'Developer'),
             role: (ghResult.user.role as 'admin' | 'developer' | 'operator') || 'admin',
             connectedGithub: ghResult.github_username || 'connected',
             connectedVercel: false,
@@ -948,7 +1026,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           id: payload.sub || payload.user_id || 'u_api',
           name: displayName,
           email: payload.email || email,
-          avatarUrl: payload.user_metadata?.avatar_url || payload.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&h=80&q=80',
+          avatarUrl: payload.user_metadata?.avatar_url || payload.avatar_url || avatarDataUri(displayName),
           role: payload.user_metadata?.role || payload.role || 'admin',
           connectedGithub: githubUsername || payload.connected_github || '',
           connectedVercel: Boolean(payload.connected_vercel),
@@ -974,37 +1052,8 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     }
 
-    // ── Demo / mock mode (only when VITE_API_URL is not set) ────────────────
-    const isGitHubDemo = passwordOrProvider === 'GitHub';
-    const isGoogleDemo = passwordOrProvider === 'Google';
-    const mockName = isGitHubDemo
-      ? 'Developer'
-      : (email.split('@')[0] || 'Developer');
-
-    const mockUser: User = {
-      id: 'u_' + Math.random().toString(36).substr(2, 9),
-      name: mockName,
-      email: isGitHubDemo ? 'demo@localhost' : (email || 'demo@localhost'),
-      avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&h=80&q=80',
-      role: 'admin',
-      connectedGithub: isGitHubDemo ? 'connected' : '',
-      connectedVercel: false,
-      connectedNetlify: false,
-    };
-    setUser(mockUser);
-
-    // Create login audit event
-    const newAudit: AuditLog = {
-      id: 'a_' + Math.random().toString(36).substr(2, 9),
-      userId: mockUser.id,
-      userName: mockUser.name,
-      action: 'USER_LOGIN',
-      details: `Logged in securely via ${isGitHubDemo ? 'GitHub' : isGoogleDemo ? 'Google' : 'Email'}.`,
-      createdAt: new Date().toISOString()
-    };
-    setAuditLogs(prev => [newAudit, ...prev]);
-    // Use setCurrentPage directly — navigateTo checks user which isn't set yet (React batching)
-    setCurrentPage('dashboard');
+    // Backend unavailable — no mock logins. The app requires the API server.
+    throw new Error('Backend unreachable. Start the API server and try again.');
   };
 
   const logoutUser = () => {
@@ -1080,7 +1129,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       status: 'queued',
       createdAt: new Date().toISOString(),
       ownerId: user.id,
-      webhookUrl: `https://api.devcorp-idp.com/webhooks/${projectData.provider}`,
+      webhookUrl: '',
       webhookSecret: 'whsec_' + Math.random().toString(36).substr(2, 8),
     };
 
@@ -1116,192 +1165,29 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         navigateTo('projects');
         return;
       } catch (err) {
-        // In API mode a failed server create must not silently fall back to demo data
+        // A failed server create must surface, never silently fall back to local data
         console.error('[createProject] API failed:', err);
         alert('Failed to create project on the server. Please try again.');
         return;
       }
     }
 
-    setProjects(prev => [...prev, newProject]);
-
-    // Create Audit Log
-    const newAudit: AuditLog = {
-      id: 'a_' + Math.random().toString(36).substr(2, 9),
-      userId: user.id,
-      userName: user.name,
-      action: 'PROJECT_CREATE',
-      projectId: projectId,
-      projectName: newProject.name,
-      details: `Created project connected to ${newProject.repoOwner}/${newProject.repoName} on branch ${newProject.branch}.`,
-      createdAt: new Date().toISOString()
-    };
-    setAuditLogs(prev => [newAudit, ...prev]);
-
-    // Push initial notification
-    const newNotify: Notification = {
-      id: 'n_' + Math.random().toString(36).substr(2, 9),
-      title: 'Project Registered',
-      message: `Project ${newProject.name} successfully registered. Initiating connection checks...`,
-      type: 'info',
-      projectId: projectId,
-      read: false,
-      createdAt: new Date().toISOString()
-    };
-    setNotifications(prev => [newNotify, ...prev]);
-
-    // Simulate build pipeline immediately (Self-service deployment simulation)
-    simulateInitialBuildPipeline(newProject);
-    
-    // Navigate to projects
+    // Backend unreachable — project creation requires the API server.
+    alert('Backend unreachable. Start the API server to create projects.');
     navigateTo('projects');
-  };
-
-  const simulateInitialBuildPipeline = (project: Project) => {
-    const deploymentId = 'd_' + Math.random().toString(36).substr(2, 9);
-    const date = new Date();
-
-    // 1. Queued state
-    const newDeploy: Deployment = {
-      id: deploymentId,
-      projectId: project.id,
-      projectName: project.name,
-      version: 'v1.0.0',
-      status: 'queued',
-      commitHash: Math.random().toString(16).substr(2, 7),
-      commitMessage: 'Initial build commit',
-      branch: project.branch,
-      author: user?.name || 'Alex Mercer',
-      authorAvatar: user?.avatarUrl,
-      provider: project.provider,
-      durationMs: 0,
-      createdAt: date.toISOString(),
-      stages: [
-        { name: 'Clone Codebase', status: 'running', durationMs: 0 },
-        { name: 'Install Modules', status: 'pending', durationMs: 0 },
-        { name: 'Build Execution', status: 'pending', durationMs: 0 },
-        { name: 'Edge CDN Sync', status: 'pending', durationMs: 0 },
-      ],
-      logs: ['Initial integration sequence triggered...', 'Establishing secure worker context...']
-    };
-
-    setDeployments(prev => [newDeploy, ...prev]);
-
-    // Step-by-step pipeline transitions
-    setTimeout(() => {
-      // 2. Building State
-      setDeployments(prev => prev.map(d => {
-        if (d.id === deploymentId) {
-          return {
-            ...d,
-            status: 'building',
-            stages: d.stages?.map((s, idx) => 
-              idx === 0 ? { ...s, status: 'success', durationMs: 3000 } :
-              idx === 1 ? { ...s, status: 'running' } : s
-            ),
-            logs: [...(d.logs || []), 'Codebase cloned successfully in 3s.', 'Running package installation...']
-          };
-        }
-        return d;
-      }));
-      setProjects(prev => prev.map(p => p.id === project.id ? { ...p, status: 'building' } : p));
-    }, 3000);
-
-    setTimeout(() => {
-      // 3. Ready State (Success)
-      const buildSuccess = Math.random() > 0.15; // 85% success rate for initial build
-      setDeployments(prev => prev.map(d => {
-        if (d.id === deploymentId) {
-          if (buildSuccess) {
-            return {
-              ...d,
-              status: 'ready',
-              durationMs: 45000,
-              url: `https://${project.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-idp.${project.provider === 'vercel' ? 'vercel.app' : 'netlify.app'}`,
-              stages: d.stages?.map(s => ({ ...s, status: 'success', durationMs: 10000 })),
-              logs: [...(d.logs || []), 'Dependencies configured successfully.', 'Running framework builds...', 'Optimized compilation succeeded.', 'Edge routing tables updated.', 'Active deployment routed successfully!']
-            };
-          } else {
-            return {
-              ...d,
-              status: 'failed',
-              durationMs: 24000,
-              errorMessage: 'Build Failed: Missing dependency bundle package core-utils.',
-              stages: [
-                { name: 'Clone Codebase', status: 'success', durationMs: 3000 },
-                { name: 'Install Modules', status: 'failed', durationMs: 21000 },
-                { name: 'Build Execution', status: 'pending', durationMs: 0 },
-                { name: 'Edge CDN Sync', status: 'pending', durationMs: 0 },
-              ],
-              logs: [...(d.logs || []), 'npm install: ERESOLVE unable to resolve dependency tree', 'Error: Command failed with exit code 1 (npm install)', 'Deployment run aborted. Pipeline halted.']
-            };
-          }
-        }
-        return d;
-      }));
-
-      setProjects(prev => prev.map(p => p.id === project.id ? { ...p, status: buildSuccess ? 'ready' : 'failed' } : p));
-
-      // Trigger alerts if failed
-      if (!buildSuccess) {
-        const incidentId = 'inc_' + Math.random().toString(36).substr(2, 9);
-        const newIncident: Incident = {
-          id: incidentId,
-          projectId: project.id,
-          projectName: project.name,
-          deploymentId: deploymentId,
-          severity: 'high',
-          provider: project.provider,
-          title: 'Initial Build Pipeline Failure',
-          description: 'The package installation sequence failed due to missing module resolutions. The project cannot be compiled.',
-          status: 'open',
-          createdAt: new Date().toISOString(),
-          comments: [],
-          suggestedAction: 'Fix package conflicts or update packages configuration.',
-          timeline: [
-            { event: 'Project build failed', timestamp: new Date().toISOString(), type: 'alert' },
-            { event: 'Critical incident automatically opened', timestamp: new Date().toISOString(), type: 'alert' }
-          ]
-        };
-        setIncidents(prev => [newIncident, ...prev]);
-
-        setNotifications(prev => [{
-          id: 'n_' + Math.random().toString(36).substr(2, 9),
-          title: 'Deployment Failed',
-          message: `Initial deploy for ${project.name} failed. Incident created.`,
-          type: 'error',
-          projectId: project.id,
-          incidentId: incidentId,
-          deploymentId: deploymentId,
-          read: false,
-          createdAt: new Date().toISOString()
-        }, ...prev]);
-      } else {
-        setNotifications(prev => [{
-          id: 'n_' + Math.random().toString(36).substr(2, 9),
-          title: 'Deployment Ready',
-          message: `Deployment v1.0.0 for ${project.name} is now live.`,
-          type: 'success',
-          projectId: project.id,
-          deploymentId: deploymentId,
-          read: false,
-          createdAt: new Date().toISOString()
-        }, ...prev]);
-      }
-    }, 6000);
   };
 
   const startRollback = async (projectId: string, targetDeploymentId: string) => {
     if (!user) return;
     const project = projects.find(p => p.id === projectId);
-    const targetDeploy = deployments.find(d => d.id === targetDeploymentId) ||
-      deployments.find(d => d.projectId === projectId && (d.status === 'ready' || d.status === 'rolled_back'));
-    const failedDeploy = deployments.find(d => d.projectId === projectId && d.status === 'failed');
 
-    // If API is available, call it and let backend handle everything
-    if (isApiAvailable()) {
-      try {
-        const result = await api.rollback.start(projectId, targetDeploymentId);
+    // Rollbacks execute on the backend only.
+    if (!isApiAvailable()) {
+      alert('Backend unreachable. Start the API server to run rollbacks.');
+      return;
+    }
+    try {
+      const result = await api.rollback.start(projectId, targetDeploymentId);
         setNotifications(prev => [{
           id: 'n_' + Math.random().toString(36).substr(2, 9),
           title: 'Rollback Initiated',
@@ -1324,138 +1210,10 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }, ...prev]);
         return;
       } catch (err) {
-        console.error('[rollback] API call failed, falling back to simulation:', err);
+        console.error('[rollback] API call failed:', err);
+        alert('Rollback failed on the server. Please try again.');
+        return;
       }
-    }
-
-    // Demo / fallback mode
-    if (!project || !targetDeploy) return;
-
-    const rollbackId = 'rb_' + Math.random().toString(36).substr(2, 9);
-    const newRollback: RollbackOperation = {
-      id: rollbackId,
-      projectId: projectId,
-      projectName: project.name,
-      failedDeploymentId: failedDeploy?.id || 'd_unknown',
-      targetDeploymentId: targetDeploymentId,
-      targetVersion: targetDeploy.version,
-      status: 'queued',
-      initiatedBy: user.id,
-      initiatedByName: user.name,
-      createdAt: new Date().toISOString(),
-      auditLogs: [
-        `Rollback operation initialized by administrator ${user.name}.`,
-        `Targeting stable deployment ${targetDeploy.version} (Commit ${targetDeploy.commitHash}).`,
-        'Queuing deployment redirection on the integration broker...'
-      ]
-    };
-
-    setRollbackOperations(prev => [newRollback, ...prev]);
-    
-    // Set project status to building during rollback
-    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, status: 'building' } : p));
-
-    // Simulate rollback processing API call
-    setTimeout(() => {
-      setRollbackOperations(prev => prev.map(rb => {
-        if (rb.id === rollbackId) {
-          return {
-            ...rb,
-            status: 'in_progress',
-            auditLogs: [
-              ...rb.auditLogs,
-              'Dispatched redirection request to provider API endpoint...',
-              `Connecting to ${project.provider} webhook routing tables...`,
-              'Restoring production route endpoints...'
-            ]
-          };
-        }
-        return rb;
-      }));
-    }, 2000);
-
-    setTimeout(() => {
-      const rollbackSuccess = true; // Rollbacks should always succeed in demo for stability
-      
-      setRollbackOperations(prev => prev.map(rb => {
-        if (rb.id === rollbackId) {
-          return {
-            ...rb,
-            status: rollbackSuccess ? 'success' : 'failed',
-            completedAt: new Date().toISOString(),
-            auditLogs: rollbackSuccess 
-              ? [...rb.auditLogs, 'Traffic successfully redirected.', 'Health probes checks verify normal state (200 OK).', 'Rollback completed successfully.']
-              : [...rb.auditLogs, 'Connection to provider API timed out.', 'Rollback execution aborted.']
-          };
-        }
-        return rb;
-      }));
-
-      if (rollbackSuccess) {
-        // Change project state to rolled_back
-        setProjects(prev => prev.map(p => p.id === projectId ? { ...p, status: 'rolled_back' } : p));
-        
-        // Mark target deployment as active (rolled_back status to display it as current active)
-        const newDeployId = 'd_' + Math.random().toString(36).substr(2, 9);
-        const newDeploy: Deployment = {
-          ...targetDeploy,
-          id: newDeployId,
-          status: 'rolled_back',
-          createdAt: new Date().toISOString(),
-          commitMessage: `[Rollback] Restore stable ${targetDeploy.version}: ${targetDeploy.commitMessage}`,
-          logs: [
-            'Initiating roll route restore...',
-            `Pulling archive bundle for release version ${targetDeploy.version}`,
-            'Deploying serverless endpoints...',
-            'Rollback success. Directing active client queries.'
-          ]
-        };
-        setDeployments(prev => [newDeploy, ...prev]);
-
-        // Auto-Resolve open incidents for this project
-        setIncidents(prev => prev.map(inc => {
-          if (inc.projectId === projectId && inc.status !== 'resolved') {
-            return {
-              ...inc,
-              status: 'resolved',
-              resolvedAt: new Date().toISOString(),
-              timeline: [
-                ...inc.timeline,
-                { event: `Rollback to ${targetDeploy.version} succeeded. Auto-resolving incident.`, timestamp: new Date().toISOString(), type: 'status_change' }
-              ]
-            };
-          }
-          return inc;
-        }));
-
-        // Log Audit Event
-        const newAudit: AuditLog = {
-          id: 'a_' + Math.random().toString(36).substr(2, 9),
-          userId: user.id,
-          userName: user.name,
-          action: 'PROJECT_ROLLBACK',
-          projectId: projectId,
-          projectName: project.name,
-          details: `Performed manual rollback to stable release version ${targetDeploy.version}.`,
-          createdAt: new Date().toISOString()
-        };
-        setAuditLogs(prev => [newAudit, ...prev]);
-
-        // Create Notifications
-        setNotifications(prev => [
-          {
-            id: 'n_' + Math.random().toString(36).substr(2, 9),
-            title: 'Rollback Completed',
-            message: `Service ${project.name} successfully rolled back to ${targetDeploy.version}.`,
-            type: 'success',
-            projectId: projectId,
-            read: false,
-            createdAt: new Date().toISOString()
-          },
-          ...prev
-        ]);
-      }
-    }, 5000);
   };
 
   const addComment = async (incidentId: string, content: string) => {
@@ -1488,32 +1246,12 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         return;
       } catch (err) {
         console.error('[addComment] API failed:', err);
+        alert('Failed to post comment on the server. Please try again.');
+        return;
       }
     }
 
-    // Demo / fallback mode
-    const newComment = {
-      id: 'c_' + Math.random().toString(36).substr(2, 9),
-      userId: user.id,
-      userName: user.name,
-      userAvatar: user.avatarUrl,
-      content: content,
-      createdAt: new Date().toISOString()
-    };
-
-    setIncidents(prev => prev.map(inc => {
-      if (inc.id === incidentId) {
-        return {
-          ...inc,
-          comments: [...inc.comments, newComment],
-          timeline: [
-            ...inc.timeline,
-            { event: `Developer comment added by ${user.name}`, timestamp: new Date().toISOString(), type: 'comment' }
-          ]
-        };
-      }
-      return inc;
-    }));
+    alert('Backend unreachable. Start the API server to post comments.');
   };
 
   const resolveIncident = async (incidentId: string) => {
@@ -1554,38 +1292,12 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         return;
       } catch (err) {
         console.error('[resolveIncident] API failed:', err);
+        alert('Failed to resolve incident on the server. Please try again.');
+        return;
       }
     }
 
-    // Demo / fallback mode
-    setIncidents(prev => prev.map(inc => {
-      if (inc.id === incidentId) {
-        return {
-          ...inc,
-          status: 'resolved',
-          resolvedAt: new Date().toISOString(),
-          timeline: [
-            ...inc.timeline,
-            { event: `Incident marked as RESOLVED by ${user.name}`, timestamp: new Date().toISOString(), type: 'status_change' }
-          ]
-        };
-      }
-      return inc;
-    }));
-
-    if (incident) {
-      setProjects(prev => prev.map(p => p.id === incident.projectId ? { ...p, status: 'ready' } : p));
-      setAuditLogs(prev => [{
-        id: 'a_' + Math.random().toString(36).substr(2, 9),
-        userId: user.id,
-        userName: user.name,
-        action: 'INCIDENT_RESOLVE',
-        projectId: incident.projectId,
-        projectName: incident.projectName,
-        details: `Manually marked incident "${incident.title}" as resolved.`,
-        createdAt: new Date().toISOString()
-      }, ...prev]);
-    }
+    alert('Backend unreachable. Start the API server to resolve incidents.');
   };
 
   const fetchSecurityIncidents = async () => {
@@ -1655,12 +1367,12 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         return;
       } catch (err) {
         console.error('[ignoreSecurityIncident] API failed:', err);
+        alert('Failed to ignore incident on the server. Please try again.');
         return;
       }
     }
-    setSecurityIncidents(prev => prev.map(i =>
-      i.id === incidentId ? { ...i, status: 'ignored', ignoredReason: reason } : i
-    ));
+
+    alert('Backend unreachable. Start the API server to manage security incidents.');
   };
 
   const markNotificationAsRead = async (notificationId: string) => {
@@ -2204,6 +1916,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (config.enabledForProjects !== undefined) payload.enabled_for_projects = config.enabledForProjects;
         if (config.baseUrl !== undefined) payload.base_url = config.baseUrl;
         if (config.projectSelector !== undefined) payload.project_selector = config.projectSelector;
+        if (config.configData !== undefined) payload.config_data = config.configData;
         if (config.apiKey) payload.status = 'connected';
 
         if (Object.keys(payload).length > 0) {
@@ -2252,6 +1965,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   return (
     <PlatformContext.Provider value={{
       user,
+      authReady,
       projects,
       deployments,
       incidents,

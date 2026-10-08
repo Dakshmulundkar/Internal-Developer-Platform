@@ -3,8 +3,10 @@
 import logging
 
 from database import supabase
-from services import datadog_service, grafana_service, newrelic_service, sentry_service
 from services.incident_service import create_from_alert
+from services.plugins.base import PluginCtx
+from services.plugins.crypto import decrypt_key
+from services.plugins.registry import get_adapter, normalize_plugin_id
 
 logger = logging.getLogger(__name__)
 
@@ -13,59 +15,27 @@ async def sync_all_plugins() -> None:
     """
     Fetch all connected plugin installations from Supabase.
     Each row stores the user's own API credentials — no server-level env vars needed.
+    Fetching is dispatched through per-plugin adapters; failures are isolated per plugin.
     """
     res = supabase.table("plugin_installations").select("*").eq("status", "connected").execute()
     if not res.data:
         return
 
     for plugin in res.data:
-        pid = plugin.get("plugin_id", "")
+        pid = normalize_plugin_id(plugin.get("plugin_id", ""))
         alerts: list = []
 
         try:
-            if "grafana" in pid:
-                base_url = plugin.get("base_url") or ""
-                api_key = plugin.get("api_key_encrypted") or ""
-                if not base_url or not api_key:
-                    logger.debug("Grafana plugin %s missing base_url or api_key, skipping", plugin.get("id"))
-                    continue
-                alerts = await grafana_service.fetch_alerts(base_url, api_key)
-
-            elif "sentry" in pid:
-                config = plugin.get("config_data") or {}
-                org = config.get("org") or ""
-                token = plugin.get("api_key_encrypted") or ""
-
-                raw_projects = config.get("projects") or config.get("project") or ""
-                if isinstance(raw_projects, list):
-                    project_list = [p.strip() for p in raw_projects if p.strip()]
-                else:
-                    project_list = [p.strip() for p in str(raw_projects).split(",") if p.strip()]
-
-                if not org or not project_list or not token:
-                    logger.debug("Sentry plugin %s missing org/projects/token, skipping", plugin.get("id"))
-                    continue
-
-                alerts = await sentry_service.fetch_issues_multi(org, project_list, token)
-
-            elif "newrelic" in pid:
-                api_key = plugin.get("api_key_encrypted") or ""
-                config = plugin.get("config_data") or {}
-                account_id = config.get("account_id") or ""
-                if not api_key:
-                    logger.debug("New Relic plugin %s missing api_key, skipping", plugin.get("id"))
-                    continue
-                alerts = await newrelic_service.fetch_violations(api_key, account_id)
-
-            elif "datadog" in pid:
-                api_key = plugin.get("api_key_encrypted") or ""
-                config = plugin.get("config_data") or {}
-                app_key = config.get("app_key") or ""
-                if not api_key:
-                    logger.debug("Datadog plugin %s missing api_key, skipping", plugin.get("id"))
-                    continue
-                alerts = await datadog_service.fetch_monitors(api_key, app_key)
-
+            adapter = get_adapter(pid)
+            ctx = PluginCtx(
+                plugin_id=pid,
+                token=decrypt_key(plugin.get("api_key_encrypted")),
+                base_url=plugin.get("base_url") or "",
+                project_selector=plugin.get("project_selector") or "",
+                config=plugin.get("config_data") or {},
+                installation_id=plugin.get("id"),
+            )
+            alerts = await adapter.fetch(ctx)
         except Exception as exc:
             logger.warning("Plugin sync failed for %s: %s", pid, exc)
             continue
@@ -80,7 +50,10 @@ async def sync_all_plugins() -> None:
             if user_projs.data:
                 fallback_project_id = user_projs.data[0]["id"]
 
-        for alert in alerts:
+        alert_rows = [r for r in alerts if r.get("kind", "alert") == "alert"]
+        deploy_rows = [r for r in alerts if r.get("kind") == "deploy"]
+
+        for alert in alert_rows:
             try:
                 alert["project_id"] = alert.get("project_id") or fallback_project_id
                 if not alert.get("project_id"):
@@ -123,6 +96,27 @@ async def sync_all_plugins() -> None:
                         await create_from_alert(alert)
             except Exception as exc:
                 logger.warning("Alert upsert failed: %s", exc)
+
+        for dep in deploy_rows:
+            try:
+                dep = dict(dep)
+                dep.pop("kind", None)
+                dep["project_id"] = dep.get("project_id") or fallback_project_id
+                if not dep.get("project_id") or not dep.get("version"):
+                    continue
+                existing_dep = (
+                    supabase.table("deployments")
+                    .select("id")
+                    .eq("project_id", dep["project_id"])
+                    .eq("version", dep["version"])
+                    .execute()
+                )
+                if existing_dep.data:
+                    supabase.table("deployments").update(dep).eq("id", existing_dep.data[0]["id"]).execute()
+                else:
+                    supabase.table("deployments").insert(dep).execute()
+            except Exception as exc:
+                logger.warning("Deploy upsert failed: %s", exc)
 
         # Update last_sync_at
         try:

@@ -208,6 +208,9 @@ const projects = {
 
   delete: (id: string) =>
     apiFetch<{ success: boolean }>(`/projects/${id}`, { method: 'DELETE' }),
+
+  pipelineFile: (id: string) =>
+    apiFetch<{ path: string; sha: string; size: number; jobs: Record<string, number>; job_count: number; step_count: number; content: string }>(`/projects/${id}/pipeline-file`),
 };
 
 const incidents = {
@@ -262,6 +265,11 @@ const deployments = {
 
   sync: (projectId: string) =>
     apiFetch<{ synced: number }>(`/deployments/sync/${projectId}`),
+
+  dispatch: (projectId: string) =>
+    apiFetch<{ id: string; pipeline: { path: string; job_count: number; step_count: number } }>(`/deployments/dispatch/${projectId}`, {
+      method: 'POST',
+    }),
 };
 
 const rollback = {
@@ -360,6 +368,15 @@ const plugins = {
 
   remove: (installationId: string) =>
     apiFetch<{ deleted: boolean }>(`/plugins/${installationId}`, { method: 'DELETE' }),
+
+  oauthStart: (provider: 'slack' | 'teams', installationId: string) =>
+    apiFetch<{ url: string }>(`/plugins/oauth/${provider}/start?installation_id=${encodeURIComponent(installationId)}`),
+
+  notify: (installationId: string, title: string, message: string) =>
+    apiFetch<{ success: boolean; message: string }>(`/plugins/${installationId}/notify`, {
+      method: 'POST',
+      body: JSON.stringify({ title, message }),
+    }),
 };
 
 const comments = {

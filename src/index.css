@@ -478,9 +478,15 @@ select option:checked {
 
 /* Search input - keep dark-ish to match dark theme */
 .light input[class*="bg-white/[0.05]"] {
-  background: rgba(0, 0, 0, 0.04) !important;
+  background: rgba(0, 0, 0, 0.06) !important;
   border: 1px solid rgba(0, 0, 0, 0.12) !important;
   color: #111827 !important;
+  box-sizing: border-box !important;
+  will-change: unset !important;
+}
+.light input[class*="bg-white/[0.05]"]:focus {
+  outline: none !important;
+  box-shadow: none !important;
 }
 .light input[class*="bg-white/[0.05]"]::placeholder {
   color: #9CA3AF !important;
@@ -684,7 +690,7 @@ select option:checked {
 }
 
 /* User menu dropdown */
-.light .absolute.right-0 {
+.light .absolute.right-0.bg-\[\#1a1a24\] {
   background: #FFFFFF !important;
   border-color: rgba(0, 0, 0, 0.08) !important;
   box-shadow: 0 8px 30px rgba(0,0,0,0.12) !important;
@@ -708,9 +714,100 @@ select option:checked {
 .light .text-zinc-300 { color: #374151 !important; }
 .light .text-zinc-400 { color: #6B7280 !important; }
 .light .text-zinc-500 { color: #9CA3AF !important; }
-.light .text-zinc-600 { color: #D1D5DB !important; }
+.light .text-zinc-600 { color: #374151 !important; }
+
+/* Stage circles — light mode */
+.light [class*="border-zinc-600"][class*="bg-zinc-800"][class*="rounded-full"] {
+  border-color: #D1D5DB !important;
+  background: rgba(0, 0, 0, 0.04) !important;
+}
+.light [class*="border-zinc-600"][class*="bg-zinc-800"][class*="rounded-full"] svg {
+  color: #9CA3AF !important;
+}
+.light [class*="bg-zinc-700/50"] {
+  background: rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Trend range dropdown — light mode */
+.light #trend-range-menu {
+  background: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+.light #trend-range-menu button {
+  color: #374151 !important;
+}
+.light #trend-range-menu button:hover {
+  background: rgba(0, 0, 0, 0.04) !important;
+  color: #111827 !important;
+}
+.light #trend-range-menu button.text-blue-400 {
+  color: #2563EB !important;
+  background: rgba(37, 99, 235, 0.08) !important;
+}
+
+/* ── Integrations / Plugins page — light mode ────────────────────── */
+.light span[class*="bg-black/20"] {
+  background: rgba(0, 0, 0, 0.05) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  color: #6B7280 !important;
+}
+.light div[class*="bg-white/[0.03]"] {
+  background: rgba(255, 255, 255, 0.7) !important;
+}
+.light div[class*="border-white/[0.06]"] {
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+.light div[class*="border-white/10"] {
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+/* ── Onboard wizard step circles — light mode ───────────────────────── */
+.light .wizard-connector {
+  background: rgba(0, 0, 0, 0.08) !important;
+}
+.light .wizard-step.step-todo {
+  background: #FFFFFF !important;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+  color: #9CA3AF !important;
+}
+.light .wizard-step.step-active {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-color: #9CA3AF !important;
+  color: #374151 !important;
+}
+.light .wizard-label.label-active { color: #111827 !important; }
+.light .wizard-label.label-done { color: #6B7280 !important; }
+.light .wizard-label.label-todo { color: #9CA3AF !important; }
 
 /* Headings and titles */
 .light h1, .light h2, .light h3, .light h4, .light h5 {
   color: #111827 !important;
+}
+
+/* ── Login / Signup page — light mode ───────────────────────────── */
+.light .min-h-screen.bg-dark-950 {
+  background: #F3F4F6 !important;
+}
+.light .bg-white\/\[0\.03\].border.border-white\/\[0\.06\].rounded-2xl {
+  background: rgba(255, 255, 255, 0.8) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.08) !important;
+}
+.light .bg-white\/5.border.border-white\/10.rounded-xl {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+.light .bg-dark-800 {
+  background: rgba(0, 0, 0, 0.05) !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+.light .bg-black\/30 {
+  background: rgba(0, 0, 0, 0.04) !important;
+}
+.light .bg-dark-950.rounded-md,
+.light span.bg-dark-950 {
+  background: #FFFFFF !important;
+}
+.light .border-white\/\[0\.06\].rounded-lg hr {
+  border-color: rgba(0, 0, 0, 0.08) !important;
 }

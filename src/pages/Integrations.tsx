@@ -82,7 +82,7 @@ export const Integrations: React.FC = () => {
     deployment: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
     monitoring: 'text-orange-400 bg-orange-500/10 border-orange-500/20',
     error_tracking: 'text-violet-400 bg-violet-500/10 border-violet-500/20',
-    source_control: 'text-zinc-300 bg-white/5 border-white/[0.06]',
+    source_control: 'text-zinc-600 bg-zinc-100 border-zinc-200',
     collaboration: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
   };
 

@@ -275,6 +275,15 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS search_vector tsvector
 CREATE INDEX IF NOT EXISTS projects_search_idx ON projects USING GIN(search_vector);
 
 -- ---------------------------------------------------------------------------
+-- deployment stage detail (backfill for tables created before these columns
+-- existed in supabase_schema.sql — CREATE TABLE IF NOT EXISTS never adds
+-- columns to an existing table, so this ALTER is the one that fixes grey
+-- stage circles on fresh dispatch runs)
+-- ---------------------------------------------------------------------------
+ALTER TABLE deployments ADD COLUMN IF NOT EXISTS stages JSONB DEFAULT '[]';
+ALTER TABLE deployments ADD COLUMN IF NOT EXISTS logs JSONB DEFAULT '[]';
+
+-- ---------------------------------------------------------------------------
 -- GRANT privileges for all new tables
 -- ---------------------------------------------------------------------------
 GRANT ALL ON deployment_comments   TO authenticated; GRANT ALL ON deployment_comments   TO service_role;

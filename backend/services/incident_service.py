@@ -83,6 +83,14 @@ async def create_from_deployment(deployment_id: str) -> None:
                     await broadcast_to_user(str(proj_res.data["owner_id"]), "incident.created", inc_res.data[0])
             except Exception:
                 pass
+
+            # Fan out to connected collaboration plugins (best-effort)
+            try:
+                from services.notify_fanout import fanout_incident
+
+                await fanout_incident({**inc_res.data[0], "project_id": dep["project_id"]})
+            except Exception:
+                pass
     except Exception as exc:
         logger.error("create_from_deployment failed: %s", exc)
 
@@ -350,6 +358,14 @@ async def create_from_alert(alert: dict) -> str | None:
                             await send_incident_created(to_email, alert.get("title", "New incident"), severity, proj_name, inc_id)
                 except Exception as exc:
                     logger.debug("Email notification skipped: %s", exc)
+
+                # Fan out to connected collaboration plugins (Slack/Discord/Teams/Jira/Linear)
+                try:
+                    from services.notify_fanout import fanout_incident
+
+                    await fanout_incident({**inc, "project_id": project_id})
+                except Exception as exc:
+                    logger.debug("Collaboration fan-out skipped: %s", exc)
 
         return inc_id
     except Exception as exc:

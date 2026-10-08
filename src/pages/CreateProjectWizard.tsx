@@ -114,21 +114,21 @@ export const CreateProjectWizard: React.FC = () => {
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
         <div className="flex justify-between items-center relative px-2">
           {/* Connector Line */}
-          <div className="absolute top-1/2 left-4 right-4 h-0.5 bg-white/[0.06] -translate-y-1/2 -z-10"></div>
+          <div className="absolute top-1/2 left-4 right-4 h-0.5 bg-white/[0.06] -translate-y-1/2 -z-10 wizard-connector"></div>
           
           {stepsList.map(s => {
             const isCompleted = step > s.num;
             const isActive = step === s.num;
             return (
               <div key={s.num} className="flex flex-col items-center gap-1.5 relative z-10">
-                <div className={`w-8 h-8 rounded-full border flex items-center justify-center text-xs font-bold font-mono transition-all duration-300 ${
+                <div className={`wizard-step ${isCompleted ? 'step-done' : isActive ? 'step-active' : 'step-todo'} w-8 h-8 rounded-full border flex items-center justify-center text-xs font-bold font-mono transition-all duration-300 ${
                   isCompleted ? 'bg-white text-black border-white' :
                   isActive ? 'bg-white/[0.03] border-zinc-400 text-zinc-200' :
                   'bg-dark-950 border-white/[0.06] text-zinc-600'
                 }`}>
                   {isCompleted ? <Check size={12} strokeWidth={3} /> : s.num}
                 </div>
-                <span className={`text-[9px] font-semibold tracking-wide uppercase transition-colors hidden md:block ${
+                <span className={`wizard-label ${isActive ? 'label-active' : isCompleted ? 'label-done' : 'label-todo'} text-[9px] font-semibold tracking-wide uppercase transition-colors hidden md:block ${
                   isActive ? 'text-zinc-200' : isCompleted ? 'text-zinc-400' : 'text-zinc-600'
                 }`}>{s.label}</span>
               </div>

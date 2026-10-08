@@ -4,13 +4,14 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from config import settings
 from database import supabase
 from dependencies import get_current_user
+from services.plugins import crypto
+from services.plugins.base import PluginCtx
+from services.plugins.registry import get_adapter, normalize_plugin_id, normalize_record
 from validators import is_valid_uuid
 
 logger = logging.getLogger(__name__)
@@ -55,12 +56,14 @@ class PluginTestRequest(BaseModel):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     project_selector: Optional[str] = None
+    config_data: Optional[Dict[str, Any]] = None
 
 
 def _format_plugin_record(record: dict) -> dict:
     """Format plugin record for frontend consumption (hide raw encrypted keys, supply hints)."""
-    rec = dict(record)
-    api_key = rec.pop("api_key_encrypted", None)
+    rec = normalize_record(record)
+    stored_key = rec.pop("api_key_encrypted", None)
+    api_key = crypto.decrypt_key(stored_key) if stored_key else ""
 
     if not rec.get("api_key_hint"):
         if api_key:
@@ -97,7 +100,7 @@ async def list_plugins(current_user=Depends(get_current_user)):
             default_seeds = [
                 {
                     "installed_by": user_id,
-                    "plugin_id": "vercel",
+                    "plugin_id": "plugin-vercel",
                     "plugin_name": "Vercel",
                     "category": "deployment",
                     "status": "connected",
@@ -108,7 +111,7 @@ async def list_plugins(current_user=Depends(get_current_user)):
                 },
                 {
                     "installed_by": user_id,
-                    "plugin_id": "grafana",
+                    "plugin_id": "plugin-grafana",
                     "plugin_name": "Grafana Cloud",
                     "category": "monitoring",
                     "status": "connected",
@@ -119,9 +122,9 @@ async def list_plugins(current_user=Depends(get_current_user)):
                 },
                 {
                     "installed_by": user_id,
-                    "plugin_id": "github",
+                    "plugin_id": "plugin-github-actions",
                     "plugin_name": "GitHub Actions",
-                    "category": "ci_cd",
+                    "category": "deployment",
                     "status": "connected",
                     "base_url": "https://api.github.com",
                     "project_selector": "Internal-Developer-Platform",
@@ -130,9 +133,9 @@ async def list_plugins(current_user=Depends(get_current_user)):
                 },
                 {
                     "installed_by": user_id,
-                    "plugin_id": "sentry",
+                    "plugin_id": "plugin-sentry",
                     "plugin_name": "Sentry",
-                    "category": "monitoring",
+                    "category": "error_tracking",
                     "status": "disconnected",
                     "base_url": "https://sentry.io",
                     "project_selector": "",
@@ -182,7 +185,7 @@ async def update_plugin(
     # Save real API key if supplied (ignore hints with masked bullets)
     if body.api_key is not None and body.api_key.strip() and "••••" not in body.api_key:
         real_key = body.api_key.strip()
-        update_data["api_key_encrypted"] = real_key
+        update_data["api_key_encrypted"] = crypto.encrypt_key(real_key)
         update_data["status"] = "connected"
         if len(real_key) >= 8:
             update_data["api_key_hint"] = f"{real_key[:4]}_••••••••••••••••••••{real_key[-4:]}"
@@ -206,6 +209,11 @@ async def update_plugin(
 
     if body.webhook_url is not None:
         update_data["webhook_url"] = body.webhook_url
+
+    if body.config_data is not None:
+        merged = dict(current_record.get("config_data") or {})
+        merged.update(body.config_data)
+        update_data["config_data"] = merged
 
     update_data["last_sync_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -241,7 +249,7 @@ async def create_plugin(
     if body.category:
         insert_data["category"] = body.category
     if body.api_key:
-        insert_data["api_key_encrypted"] = body.api_key
+        insert_data["api_key_encrypted"] = crypto.encrypt_key(body.api_key)
     if body.base_url:
         insert_data["base_url"] = body.base_url
     if body.project_selector:
@@ -273,6 +281,9 @@ async def test_plugin_connection(
     base_url = body.base_url or ""
     project_selector = body.project_selector or ""
     target_row_id = None
+    stored_config: dict = {}
+    # Unsaved form values (test-before-save) merge over stored config below.
+    form_config: dict = dict(body.config_data or {})
 
     # If an existing installation ID was provided, fetch stored credentials if not supplied
     if body.id:
@@ -286,135 +297,37 @@ async def test_plugin_connection(
             rec = existing.data[0]
             target_row_id = rec.get("id")
             plugin_id = plugin_id or rec.get("plugin_id")
-            token = token or rec.get("api_key_encrypted") or ""
+            token = token or crypto.decrypt_key(rec.get("api_key_encrypted")) or ""
             base_url = base_url or rec.get("base_url") or ""
             project_selector = project_selector or rec.get("project_selector") or ""
+            stored_config = rec.get("config_data") or {}
     elif plugin_id:
         existing = supabase.table("plugin_installations").select("*").eq("plugin_id", plugin_id).eq("installed_by", user_id).limit(1).execute()
         if existing.data:
             rec = existing.data[0]
             target_row_id = rec.get("id")
-            token = token or rec.get("api_key_encrypted") or ""
+            token = token or crypto.decrypt_key(rec.get("api_key_encrypted")) or ""
             base_url = base_url or rec.get("base_url") or ""
             project_selector = project_selector or rec.get("project_selector") or ""
+            stored_config = rec.get("config_data") or {}
 
-    outcome: dict = {"success": True, "message": f"Plugin configuration for {plugin_id or 'service'} validated."}
-
-    from services.service_prober import _assert_safe_target
-
-    def _assert_endpoint(url: str) -> None:
-        """Reject plugin test targets that resolve to restricted networks (SSRF)."""
-        if not url:
-            return
-        try:
-            _assert_safe_target(url)
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    async with httpx.AsyncClient(timeout=12.0) as client:
-        # 1. Vercel
-        if plugin_id == "vercel":
-            token = token or getattr(settings, "VERCEL_API_TOKEN", "") or ""
-            if "••••" in token or not token:
-                # URL / Endpoint validation
-                raw_target = project_selector or base_url or ""
-                clean_target = raw_target.replace("https://", "").replace("http://", "").strip().rstrip("/")
-                if clean_target.endswith(".vercel.app"):
-                    clean_name = clean_target[:-11]
-                else:
-                    clean_name = clean_target
-
-                target_endpoint = f"https://{clean_name}.vercel.app" if clean_name else (base_url or "https://testing-brown-delta.vercel.app")
-                try:
-                    _assert_endpoint(target_endpoint)
-                    resp = await client.get(target_endpoint, follow_redirects=False)
-                    if resp.status_code < 500:
-                        outcome = {
-                            "success": True,
-                            "message": f"Verified project endpoint {target_endpoint} (HTTP {resp.status_code}). Deployment sync ready.",
-                        }
-                    else:
-                        outcome = {
-                            "success": False,
-                            "message": f"Project endpoint {target_endpoint} returned error status {resp.status_code}.",
-                        }
-                except Exception as exc:
-                    outcome = {
-                        "success": True,
-                        "message": f"Vercel project configured for '{clean_name or raw_target}'. Ready for deployment webhooks.",
-                    }
-            else:
-                try:
-                    resp = await client.get(
-                        "https://api.vercel.com/v2/user",
-                        headers={"Authorization": f"Bearer {token}"},
-                    )
-                    if resp.status_code == 200:
-                        user_info = resp.json().get("user", {})
-                        username = user_info.get("username") or user_info.get("email") or "Vercel Account"
-                        outcome = {
-                            "success": True,
-                            "message": f"Connected to Vercel account: {username}. Project '{project_selector or 'deployed-service'}' mapped successfully.",
-                        }
-                    else:
-                        outcome = {
-                            "success": False,
-                            "message": f"Vercel API rejected token: HTTP {resp.status_code} ({resp.text[:100]})",
-                        }
-                except Exception as exc:
-                    outcome = {"success": False, "message": f"Failed to reach Vercel API: {exc}"}
-
-        # 2. Grafana
-        elif plugin_id == "grafana":
-            url = base_url or "https://g-8949d28229f3479a838dc2a11b811802.grafana.net"
-            headers = {}
-            if token and "••••" not in token:
-                headers["Authorization"] = f"Bearer {token}"
-            try:
-                _assert_endpoint(url)
-                resp = await client.get(f"{url.rstrip('/')}/api/health", headers=headers)
-                outcome = {
-                    "success": True,
-                    "message": f"Grafana Cloud instance reachable at {url} (HTTP {resp.status_code}). Monitoring webhook active.",
-                }
-            except Exception:
-                outcome = {
-                    "success": True,
-                    "message": f"Grafana Cloud endpoint {url} configured. Ready to ingest telemetry alerts.",
-                }
-
-        # 3. GitHub
-        elif plugin_id == "github":
-            headers = {"Accept": "application/vnd.github.v3+json"}
-            if token and "••••" not in token:
-                headers["Authorization"] = f"token {token}"
-            try:
-                resp = await client.get("https://api.github.com/zen", headers=headers)
-                if resp.status_code == 200:
-                    outcome = {
-                        "success": True,
-                        "message": f"Successfully connected to GitHub API. Repository mapping for '{project_selector or 'Internal-Developer-Platform'}' is active.",
-                    }
-                else:
-                    outcome = {"success": True, "message": f"GitHub Actions integration connected (HTTP {resp.status_code})."}
-            except Exception:
-                outcome = {"success": True, "message": "GitHub Actions webhook integration ready."}
-
-        # 4. Sentry
-        elif plugin_id == "sentry":
-            outcome = {
-                "success": True,
-                "message": "Sentry error-tracking plugin verified. Ready to capture unhandled exceptions and performance traces.",
-            }
-
-        # 5. Generic HTTP base_url test
-        elif base_url:
-            try:
-                _assert_endpoint(base_url)
-                resp = await client.get(base_url, follow_redirects=False)
-                outcome = {"success": True, "message": f"Successfully connected to {base_url} (HTTP {resp.status_code})"}
-            except Exception as exc:
-                outcome = {"success": False, "message": f"Connection failed to {base_url}: {exc}"}
+    canonical_id = normalize_plugin_id(plugin_id)
+    adapter = get_adapter(canonical_id)
+    merged_config = {**stored_config, **{k: v for k, v in form_config.items() if v not in (None, "")}}
+    ctx = PluginCtx(
+        plugin_id=canonical_id,
+        token=token,
+        base_url=base_url,
+        project_selector=project_selector,
+        config=merged_config,
+        installation_id=target_row_id,
+    )
+    try:
+        result = await adapter.test(ctx)
+        outcome: dict = {"success": result.success, "message": result.message}
+    except Exception as exc:
+        logger.warning("Plugin test crashed for %s: %s", canonical_id, exc)
+        outcome = {"success": False, "message": f"Test failed: {exc}"}
 
     # If verification was successful and we know the DB record, persist verified state and credentials
     if outcome.get("success") and target_row_id and is_valid_uuid(target_row_id):
@@ -425,7 +338,7 @@ async def test_plugin_connection(
             }
             if body.api_key and body.api_key.strip() and "••••" not in body.api_key:
                 real_key = body.api_key.strip()
-                upd["api_key_encrypted"] = real_key
+                upd["api_key_encrypted"] = crypto.encrypt_key(real_key)
                 if len(real_key) >= 8:
                     upd["api_key_hint"] = f"{real_key[:4]}_••••••••••••••••••••{real_key[-4:]}"
                 else:
@@ -439,6 +352,47 @@ async def test_plugin_connection(
             logger.warning("Failed to persist plugin config on test success: %s", exc)
 
     return outcome
+
+
+class NotifyRequest(BaseModel):
+    title: str = "Test notification from Aether IDP"
+    message: str = "If you received this, outbound delivery works."
+
+
+@router.post("/{installation_id}/notify", summary="Send a notification via a collaboration plugin")
+async def notify_via_plugin(
+    installation_id: str,
+    body: NotifyRequest,
+    current_user=Depends(get_current_user),
+):
+    """Manual send (and the UI's Send-test button). Only sending-capable plugins."""
+    from services.notify_fanout import SEND_CAPABLE
+
+    user_id = _get_user_id(current_user)
+    query = supabase.table("plugin_installations").select("*")
+    if is_valid_uuid(installation_id):
+        query = query.eq("id", installation_id)
+    else:
+        query = query.eq("plugin_id", installation_id)
+    existing = query.eq("installed_by", user_id).limit(1).execute()
+    if not existing.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin installation not found")
+    rec = existing.data[0]
+    pid = normalize_plugin_id(rec.get("plugin_id"))
+    if pid not in SEND_CAPABLE:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"{rec.get('plugin_name', 'Plugin')} does not support sending.")
+    adapter = get_adapter(pid)
+    ctx = PluginCtx(
+        plugin_id=pid,
+        token=crypto.decrypt_key(rec.get("api_key_encrypted")),
+        base_url=rec.get("base_url") or "",
+        project_selector=rec.get("project_selector") or "",
+        config=rec.get("config_data") or {},
+        installation_id=rec.get("id"),
+    )
+    result = await adapter.send(ctx, body.title, body.message)
+    return {"success": result.success, "message": result.message}
 
 
 @router.delete("/{installation_id}", summary="Remove a plugin installation")

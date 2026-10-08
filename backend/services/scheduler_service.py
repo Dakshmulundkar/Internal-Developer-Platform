@@ -77,6 +77,21 @@ async def _run_task(task: dict) -> dict:
                 logger.warning("alert_sync plugin sync failed: %s", sync_exc)
             return {"status": "success", "detail": "alert_sync executed"}
 
+        if task_type == "security_rescan":
+            # IDP-side Trivy rescan of a project's repo/image. Catches CVEs
+            # disclosed after the code was pushed (event-driven scans miss these).
+            if not project_id:
+                return {"status": "skipped", "detail": "No project_id configured"}
+            try:
+                from services.trivy_service import scan_project
+
+                outcome = await scan_project(
+                    str(project_id), image_ref=str(config.get("image_ref") or ""))
+                return {"status": outcome.get("status", "success"), "detail": outcome.get("detail", "")}
+            except Exception as exc:
+                logger.warning("security_rescan failed: %s", exc)
+                return {"status": "failed", "detail": str(exc)}
+
         if task_type == "report":
             from services.notification_service import create_notification
 

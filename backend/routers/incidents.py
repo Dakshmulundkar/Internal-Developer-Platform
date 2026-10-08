@@ -128,6 +128,14 @@ async def create_incident(body: IncidentCreate, current_user=Depends(get_current
         details=f"Created incident: {body.title}",
         project_id=body.project_id,
     )
+
+    # Fan out to connected collaboration plugins (best-effort)
+    try:
+        from services.notify_fanout import fanout_incident
+
+        await fanout_incident({**res.data[0], "project_id": body.project_id})
+    except Exception:
+        pass
     return {**res.data[0], "comments": [], "timeline": []}
 
 

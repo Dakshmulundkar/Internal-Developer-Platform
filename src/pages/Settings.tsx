@@ -556,7 +556,7 @@ const ALL_PAGES = [
   { id: 'monitoring', label: 'Monitoring' },
   { id: 'incidents', label: 'Incidents' },
   { id: 'rollback-recovery', label: 'Rollback & Recovery' },
-  { id: 'automation', label: 'Automation' },
+  { id: 'automation', label: 'Pipelines' },
   { id: 'scheduled-tasks', label: 'Scheduled Tasks' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'settings', label: 'Settings' },

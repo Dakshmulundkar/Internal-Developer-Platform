@@ -33,11 +33,11 @@ const PAGES: PageEntry[] = [
   { id: 'monitoring',        title: 'Monitoring',          desc: 'Observability and alert management',       icon: Activity,        aliases: ['alerts', 'observability', 'grafana', 'datadog', 'sentry'] },
   { id: 'incidents',         title: 'Incidents',           desc: 'Incident tracking and resolution',         icon: AlertCircle,     aliases: ['issues', 'outages', 'oncall'] },
   { id: 'rollback-recovery', title: 'Rollback & Recovery', desc: 'Rollback procedures and recovery',         icon: RefreshCw,       aliases: ['rollback', 'recovery', 'hotfix'] },
-  { id: 'automation',        title: 'Automation',          desc: 'Pipeline automation center',               icon: Zap,             aliases: ['pipelines', 'ci', 'cd'] },
+  { id: 'automation',        title: 'Pipelines',          desc: 'Pipeline automation center',               icon: Zap,             aliases: ['pipelines', 'ci', 'cd'] },
   { id: 'scheduled-tasks',   title: 'Scheduled Tasks',     desc: 'Cron jobs and scheduled operations',       icon: CalendarClock,   aliases: ['cron', 'scheduler', 'jobs'] },
   { id: 'notifications',     title: 'Notifications',       desc: 'Audit logs and alerts',                    icon: Bell,            aliases: ['alerts', 'logs', 'audit'] },
   { id: 'settings',          title: 'Settings',            desc: 'Instance configuration and preferences',   icon: Settings,        aliases: ['config', 'preferences', 'setup'] },
-  { id: 'plugin-config',     title: 'Plugins',             desc: 'Install and configure plugins',            icon: Puzzle,          aliases: ['integrations', 'extensions', 'addons', 'plugins'] },
+  { id: 'integrations',     title: 'Plugins',             desc: 'Plugin marketplace — install and configure plugins', icon: Puzzle,          aliases: ['integrations', 'extensions', 'addons', 'plugins'] },
   { id: 'settings:providers',        title: 'Deployment Providers', desc: 'GitHub, Vercel, Netlify connections',  icon: Github,    aliases: ['github', 'vercel', 'netlify', 'git'] },
   { id: 'settings:notifications',    title: 'Notification Settings', desc: 'Configure email and platform alerts', icon: Bell,      aliases: ['email', 'alerts config'] },
   { id: 'settings:security-webhook', title: 'Security Webhook',     desc: 'GitHub webhook signature verification', icon: Shield, aliases: ['webhook', 'security', 'github'] },
@@ -229,7 +229,7 @@ export const Header: React.FC = () => {
 
       <div className="flex items-center gap-3">
         {/* Search */}
-        <div className="relative" ref={searchRef}>
+        <div className="relative shrink-0" ref={searchRef}>
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
           <input
             ref={searchInputRef}
@@ -239,10 +239,10 @@ export const Header: React.FC = () => {
             onFocus={() => setSearchOpen(true)}
             onKeyDown={onSearchKeyDown}
             placeholder="Search all pages"
-            className="pl-9 pr-3 py-2 w-56 bg-white/[0.05] border border-white/[0.08] rounded-xl text-[12px] text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-[rgba(59,130,246,0.4)] transition-all"
+            className="pl-9 pr-3 py-2 w-56 min-w-[224px] h-[34px] bg-white/[0.05] border border-white/[0.08] rounded-xl text-[12px] text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-0 focus:border-white/[0.08]"
           />
           {searchOpen && (
-            <div className="absolute right-0 mt-2 w-80 bg-dark-950 border border-white/[0.06] rounded-xl shadow-xl z-50 overflow-hidden text-xs glass">
+            <div className="absolute left-0 top-full mt-1 w-56 bg-dark-950 border border-white/[0.06] rounded-xl shadow-xl z-50 overflow-hidden text-xs glass">
               {searchLoading && (
                 <div className="flex items-center gap-2 px-4 py-3 text-[11px] text-zinc-500">
                   <Loader size={12} className="animate-spin" /> Searching…
@@ -343,7 +343,7 @@ export const Header: React.FC = () => {
           </button>
 
           {showUserMenu && (
-            <div className="absolute right-0 mt-1 pb-2 w-56">
+            <div className="absolute right-0 mt-1 w-56">
             <div className="bg-[#1a1a24] border border-white/[0.08] rounded-xl shadow-2xl overflow-hidden text-xs">
               {/* User header */}
               <div className="px-4 py-3 border-b border-white/[0.06]">

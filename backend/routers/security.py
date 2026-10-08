@@ -12,6 +12,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from database import supabase
 from dependencies import get_current_user, get_user_project_ids
 from services.security_service import SecurityTriageService
+from pydantic import BaseModel
+
+
+class ScanRequest(BaseModel):
+    image_ref: str = ""
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/security", tags=["security"])
@@ -171,6 +176,24 @@ async def get_security_metrics(
     if project_id and project_id not in service._user_project_ids():
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     return metrics
+
+
+@router.post("/scan/{project_id}", summary="Run an IDP-side Trivy scan of a project")
+async def scan_project_now(
+    project_id: str,
+    body: ScanRequest,
+    current_user=Depends(get_current_user),
+):
+    """Scan a project's repo tarball (or image ref) with Trivy and report new findings.
+
+    Only HIGH/CRITICAL findings become incidents; already-open ones are skipped.
+    """
+    service = SecurityTriageService(str(current_user.id))
+    if project_id not in service._user_project_ids():
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    from services.trivy_service import scan_project
+
+    return await scan_project(project_id, image_ref=body.image_ref.strip())
 
 
 def _format_incident(incident: Dict[str, Any]) -> Dict[str, Any]:

@@ -208,3 +208,38 @@ applied incrementally afterward, each verified (compileall + import main + guard
   latent defense only); private-bucket migration for attachments (FIND-B residual);
   `audit select(*)` (FIND-N); untyped incident body (FIND-O); AI analyze rate limit (FIND-P);
   `/monitoring/sync` global trigger (FIND-M).
+
+## Session 2026-09-15 — Plugin System, Scanning, Deploy Compat (agent-led)
+
+### Delivered and verified
+- **Phase 3 plugin adapters (Batches 0–4):** `BaseAdapter` + registry dispatch replaced
+  the `if plugin_id ==` chains in `/plugins/test` and `plugin_sync`. ~30 vendors with
+  real credential tests; alert fetchers, deploy fetchers, verified-test-only tier,
+  hard-auth tier (SigV4, GCP JWT, kubeconfig, Slack/Teams OAuth routes), outbound
+  `send()` + incident fan-out + `POST /plugins/{id}/notify`. Fernet key encryption.
+  Fixture suites: 117 pytest tests, no live keys (`backend/tests/test_plugin_*.py`,
+  `test_dispatch.py`, `test_pipeline_file.py`).
+- **Phase 4 scanning:** `services/trivy_service.py` (tarball/image scans, HIGH/CRITICAL
+  gate, finding cap, open-incident dedupe) reusing `create_from_security_triage`;
+  `security_rescan` scheduler task; `POST /security/scan/{project_id}`;
+  OSV.dev manifest audit merged into scans. Tests: `test_trivy_scan.py`.
+- **Phase 5 deploy compat:** Trivy in `backend/Dockerfile`, `$PORT` start command,
+  `netlify.toml` (SPA fallback). Playwright deferred as opt-in; `tsc`/ESLint scanning
+  rejected (needs user node_modules).
+- **Real dispatch builds:** `POST /deployments/dispatch/{project_id}` — fetches the
+  repo pipeline file, stores a queued run with the real latest commit, dry-runs to
+  stopped-before-deploy (grey, never red) with timestamped logs; frontend polls live.
+- **Launch videos:** `brag-output/` (20s yc-parody spot) and
+  `brag-output-2026-09-30-021500/` (2:30 voiced ad, Kokoro Adam, 11 beats) — both
+  git-ignored, never committed.
+- Verification this session: `pytest tests/` 117/117; `tsc --noEmit` clean;
+  `vite build` ✓.
+
+### Explicitly reverted this session (per user order — do not re-add unasked)
+- Session-persistence/auth hardening, theme/light-mode system, dashboard rewrite,
+  pipeline UI rework, search/dropdown fixes, seed-data purge, login theme switcher.
+  Working tree = GitHub HEAD + plugin/backend work only. Consequences still live in
+  the tree: JWT-only session restore (reload logs out), seed/demo fallbacks present,
+  Sentry Issues tab hardcoded `[]`, rollback sim/timeout-success paths, canned
+  `aiExplanations` remediation, dead buttons noted in earlier reviews.
+- See `phases.md` Phase 6 (Tasks 56–60) for the specified follow-ups.

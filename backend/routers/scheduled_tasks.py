@@ -35,7 +35,7 @@ class ScheduledTaskUpdate(BaseModel):
     project_id: str | None = None
 
 
-_TASK_TYPES = {"email_digest", "health_check", "alert_sync", "report"}
+_TASK_TYPES = {"email_digest", "health_check", "alert_sync", "report", "security_rescan"}
 
 
 @router.get("")

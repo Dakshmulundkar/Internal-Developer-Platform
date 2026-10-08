@@ -699,6 +699,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['repo:push', 'pullrequest:created', 'pullrequest:fulfilled'],
     iconColor: 'text-blue-400',
     iconLabel: 'BB',
+    configFields: [
+      { key: 'username', label: 'Bitbucket Username', placeholder: 'e.g. devcorp-bot', help: 'App password goes in the API key box above.' },
+    ],
   },
   {
     id: 'plugin-azure-repos',
@@ -712,6 +715,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['git.push', 'build.complete', 'release.deployment.completed'],
     iconColor: 'text-blue-500',
     iconLabel: 'AZ',
+    configFields: [
+      { key: 'org', label: 'Organization Name', placeholder: 'e.g. devcorp (from dev.azure.com/ORG)' },
+    ],
   },
 
   // ── Deployment ──────────────────────────────────────────
@@ -753,6 +759,10 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['deployment.success', 'deployment.failure', 'deployment.rollback'],
     iconColor: 'text-amber-400',
     iconLabel: 'AWS',
+    configFields: [
+      { key: 'access_key_id', label: 'AWS Access Key ID', placeholder: 'e.g. AKIA…' },
+      { key: 'region', label: 'AWS Region', placeholder: 'e.g. us-east-1' },
+    ],
   },
   {
     id: 'plugin-gcp',
@@ -766,6 +776,11 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['release.created', 'rollout.succeeded', 'rollout.failed'],
     iconColor: 'text-blue-400',
     iconLabel: 'GCP',
+    configFields: [
+      { key: 'service_account_json', label: 'Service Account JSON Key', placeholder: 'Paste the full JSON key file…', secret: true, textarea: true },
+      { key: 'project_id', label: 'GCP Project ID', placeholder: 'e.g. my-project-123' },
+      { key: 'region', label: 'Region', placeholder: 'e.g. us-central1' },
+    ],
   },
   {
     id: 'plugin-azure-devops',
@@ -779,6 +794,10 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['release.deployment.started', 'release.deployment.completed'],
     iconColor: 'text-blue-500',
     iconLabel: 'AZP',
+    configFields: [
+      { key: 'org', label: 'Organization Name', placeholder: 'e.g. devcorp' },
+      { key: 'project', label: 'Project Name', placeholder: 'e.g. web-app' },
+    ],
   },
   {
     id: 'plugin-heroku',
@@ -792,6 +811,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['api:release', 'api:dyno'],
     iconColor: 'text-purple-400',
     iconLabel: 'HK',
+    configFields: [
+      { key: 'app', label: 'Heroku App Name (optional)', placeholder: 'e.g. my-api — enables release tracking' },
+    ],
   },
   {
     id: 'plugin-render',
@@ -846,6 +868,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['alert.opened', 'alert.closed'],
     iconColor: 'text-green-400',
     iconLabel: 'NR',
+    configFields: [
+      { key: 'account_id', label: 'Account ID (optional)', placeholder: 'New Relic account ID' },
+    ],
   },
   {
     id: 'plugin-datadog',
@@ -859,6 +884,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['monitor.alert', 'monitor.recovery'],
     iconColor: 'text-purple-400',
     iconLabel: 'DD',
+    configFields: [
+      { key: 'app_key', label: 'Application Key', placeholder: 'Datadog application key (for full monitor details)', secret: true },
+    ],
   },
   {
     id: 'plugin-prometheus',
@@ -898,6 +926,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['trigger.fired', 'trigger.resolved'],
     iconColor: 'text-yellow-400',
     iconLabel: 'HC',
+    configFields: [
+      { key: 'dataset', label: 'Dataset Slug', placeholder: 'e.g. api-traces', help: 'Trigger state is not queryable — armed triggers list as pending; real firings arrive via webhook.' },
+    ],
   },
   {
     id: 'plugin-cloudwatch',
@@ -911,6 +942,10 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['alarm.state_change'],
     iconColor: 'text-amber-400',
     iconLabel: 'CW',
+    configFields: [
+      { key: 'access_key_id', label: 'AWS Access Key ID', placeholder: 'e.g. AKIA…' },
+      { key: 'region', label: 'AWS Region', placeholder: 'e.g. us-east-1' },
+    ],
   },
   {
     id: 'plugin-elastic',
@@ -952,6 +987,10 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['issue.created', 'issue.resolved', 'error.new'],
     iconColor: 'text-violet-400',
     iconLabel: 'SN',
+    configFields: [
+      { key: 'org', label: 'Organization Slug', placeholder: 'e.g. my-company' },
+      { key: 'projects', label: 'Project Slugs (comma-separated)', placeholder: 'e.g. web-app, api-service' },
+    ],
   },
   {
     id: 'plugin-rollbar',
@@ -978,6 +1017,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['error.new', 'error.spike'],
     iconColor: 'text-pink-400',
     iconLabel: 'BG',
+    configFields: [
+      { key: 'project_id', label: 'Bugsnag Project ID', placeholder: 'e.g. 5f3a…c21b (from project settings URL)' },
+    ],
   },
   {
     id: 'plugin-raygun',
@@ -991,6 +1033,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['error_notification', 'deployment'],
     iconColor: 'text-orange-400',
     iconLabel: 'RG',
+    configFields: [
+      { key: 'app_id', label: 'Raygun App ID (optional)', placeholder: 'Defaults to your first application' },
+    ],
   },
   {
     id: 'plugin-airbrake',
@@ -1004,6 +1049,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['error.created', 'error.resolved'],
     iconColor: 'text-red-500',
     iconLabel: 'AB',
+    configFields: [
+      { key: 'project_id', label: 'Airbrake Project ID (optional)', placeholder: 'Defaults to your first project' },
+    ],
   },
 
   // ── Incident Management ──────────────────────────────────
@@ -1045,6 +1093,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['incident.created', 'incident.resolved', 'component.status_change'],
     iconColor: 'text-blue-500',
     iconLabel: 'SP',
+    configFields: [
+      { key: 'page_id', label: 'Statuspage Page ID', placeholder: 'e.g. yw8s5zrgd2m1 (Manage → Page ID)' },
+    ],
   },
   {
     id: 'plugin-victorops',
@@ -1058,6 +1109,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['incident.triggered', 'incident.resolved'],
     iconColor: 'text-green-400',
     iconLabel: 'VO',
+    configFields: [
+      { key: 'api_id', label: 'API ID', placeholder: 'Splunk On-Call → Integrations → API key ID' },
+    ],
   },
 
   // ── CI/CD ────────────────────────────────────────────────
@@ -1086,6 +1140,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['build.started', 'build.completed', 'build.failed'],
     iconColor: 'text-red-400',
     iconLabel: 'JK',
+    configFields: [
+      { key: 'username', label: 'Jenkins Username', placeholder: 'e.g. devops-bot', help: 'API token goes in the key box (User → Security → API Token).' },
+    ],
   },
   {
     id: 'plugin-circleci',
@@ -1140,6 +1197,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['incident.created', 'deployment.failed', 'rollback.completed'],
     iconColor: 'text-purple-400',
     iconLabel: 'SL',
+    configFields: [
+      { key: 'channel', label: 'Default Channel', placeholder: 'e.g. #incidents', help: 'Incident alerts post here automatically.' },
+    ],
   },
   {
     id: 'plugin-msteams',
@@ -1153,6 +1213,10 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['incident.created', 'deployment.failed'],
     iconColor: 'text-blue-500',
     iconLabel: 'MT',
+    configFields: [
+      { key: 'team_id', label: 'Team ID', placeholder: 'Graph team (group) ID' },
+      { key: 'channel_id', label: 'Channel ID', placeholder: 'Graph channel ID for alerts' },
+    ],
   },
   {
     id: 'plugin-discord',
@@ -1166,6 +1230,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['incident.created', 'deployment.failed', 'rollback.completed'],
     iconColor: 'text-indigo-400',
     iconLabel: 'DC',
+    configFields: [
+      { key: 'webhook_url', label: 'Channel Webhook URL', placeholder: 'https://discord.com/api/webhooks/…', help: 'Server Settings → Integrations → Webhooks. No test message is ever sent.' },
+    ],
   },
   {
     id: 'plugin-jira',
@@ -1179,6 +1246,11 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['issue.created', 'issue.updated', 'issue.resolved'],
     iconColor: 'text-blue-500',
     iconLabel: 'JR',
+    configFields: [
+      { key: 'email', label: 'Account Email', placeholder: 'you@company.com', help: 'Jira Cloud host goes in Base URL above; API token goes in the key box.' },
+      { key: 'project_key', label: 'Project Key', placeholder: 'e.g. OPS — incidents become issues here' },
+      { key: 'issue_type', label: 'Issue Type (optional)', placeholder: 'Defaults to Task' },
+    ],
   },
   {
     id: 'plugin-linear',
@@ -1192,6 +1264,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['Issue.create', 'Issue.update'],
     iconColor: 'text-violet-400',
     iconLabel: 'LN',
+    configFields: [
+      { key: 'team_id', label: 'Linear Team ID', placeholder: 'UUID — incidents become issues here' },
+    ],
   },
 
   // ── Cloud Infrastructure ─────────────────────────────────
@@ -1207,6 +1282,10 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['pod.crash', 'deployment.failed', 'node.notready'],
     iconColor: 'text-blue-400',
     iconLabel: 'K8',
+    configFields: [
+      { key: 'kubeconfig', label: 'Kubeconfig YAML', placeholder: 'Paste kubeconfig (token-auth user)…', secret: true, textarea: true },
+      { key: 'namespace', label: 'Namespace (optional)', placeholder: 'Blank = all namespaces' },
+    ],
   },
   {
     id: 'plugin-argocd',
@@ -1233,6 +1312,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['run:created', 'run:applying', 'run:errored'],
     iconColor: 'text-purple-500',
     iconLabel: 'TF',
+    configFields: [
+      { key: 'org', label: 'Terraform Organization', placeholder: 'e.g. devcorp' },
+    ],
   },
 
   // ── Security ─────────────────────────────────────────────
@@ -1248,6 +1330,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['project.snapshot.created', 'project.test.completed'],
     iconColor: 'text-violet-500',
     iconLabel: 'SK',
+    configFields: [
+      { key: 'org_id', label: 'Snyk Org ID', placeholder: 'UUID from organization settings URL' },
+    ],
   },
   {
     id: 'plugin-sonarqube',
@@ -1261,6 +1346,9 @@ export const pluginDefinitions: PluginDefinition[] = [
     webhookEvents: ['analysis.success', 'analysis.failed', 'quality_gate.changed'],
     iconColor: 'text-blue-400',
     iconLabel: 'SQ',
+    configFields: [
+      { key: 'project_key', label: 'Project Key', placeholder: 'e.g. devcorp_web-app' },
+    ],
   },
 ];
 

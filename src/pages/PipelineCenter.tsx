@@ -1,17 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import { timeAgo } from '../hooks/useDragReorder';
+import { api } from '../services/api';
+import { gateStages, normalizeStages, resolveStageStatus } from '../lib/pipelineStages';
 import {
   Activity, AlertTriangle, ArrowRight, Ban, CheckCircle2, ChevronDown,
-  ChevronUp, Clock3, ExternalLink, GitBranch, Layers, Loader2, PlayCircle,
-  Plus, RefreshCw, RotateCcw, Search, Server, ShieldCheck, Terminal, TrendingUp, User, XCircle,
+  ChevronUp, Clock3, ExternalLink, FlaskConical, GitBranch, Hammer, Layers, Loader2,
+  Plus, RefreshCw, RotateCcw, Search, Server, Shield, ShieldCheck, Terminal, TrendingUp, User, XCircle, Rocket,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import type { Deployment, DeploymentStatus, Project } from '../types/platform';
-import { PipelineStageBar } from '../components/PipelineStageBar';
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Status metadata — maps the platform status model onto Jenkins-style labels
@@ -91,7 +92,13 @@ const DEFAULT_STAGES: DeployStage[] = [
   { name: 'Deploy', status: 'pending', durationMs: 0 },
 ];
 
-const ENV_ORDER = ['production', 'staging', 'preview', 'development', 'dev', 'qa'];
+/* Fixed 4-stage pipeline order for the row circles */
+const STAGE_ORDER = [
+  { key: 'Build', label: 'BUILD', Icon: Hammer },
+  { key: 'Security', label: 'SECURITY', Icon: Shield },
+  { key: 'Test', label: 'TEST', Icon: FlaskConical },
+  { key: 'Deploy', label: 'DEPLOY', Icon: Rocket },
+];
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Static helpers
@@ -124,22 +131,6 @@ function StatusChip({ status }: { status: DeploymentStatus }) {
       <span className={`w-1.5 h-1.5 rounded-full ${m.dot} ${status === 'building' ? 'animate-pulse' : ''}`} />
       {m.short}
     </span>
-  );
-}
-
-function WeatherDots({ builds }: { builds: Deployment[] }) {
-  const recent = builds.slice(0, 12).reverse();
-  if (recent.length === 0) return <span className="text-[9px] text-zinc-700">no builds</span>;
-  return (
-    <div className="flex items-center gap-[3px]">
-      {recent.map((b, i) => (
-        <span
-          key={i}
-          title={`${b.version} — ${STATUS_META[b.status].label}`}
-          className={`w-2 h-2 rounded-sm ${STATUS_META[b.status].dot} ${b.status === 'building' ? 'animate-pulse' : ''}`}
-        />
-      ))}
-    </div>
   );
 }
 
@@ -336,7 +327,10 @@ function RollbackModal({ deployment, onClose }: {
 
 function BuildDrillDown({ deployment }: { deployment: Deployment }) {
   const { incidents, securityIncidents, navigateTo } = usePlatform();
-  const stages = deployment.stages && deployment.stages.length > 0 ? deployment.stages : DEFAULT_STAGES;
+  const stages = (() => {
+    const parsed = normalizeStages(deployment.stages);
+    return parsed.length > 0 ? parsed : DEFAULT_STAGES;
+  })();
   const logs = deployment.logs && deployment.logs.length > 0 ? deployment.logs : ['No console output captured for this build.'];
 
   const linked = useMemo(
@@ -348,6 +342,11 @@ function BuildDrillDown({ deployment }: { deployment: Deployment }) {
 
   return (
     <div className="border-t border-white/[0.06] bg-black/20 px-4 py-4">
+      <div className="text-[11px] font-mono text-zinc-400 truncate mb-3">
+        <span className="text-zinc-500">{deployment.commitHash}</span>
+        <span className="text-zinc-700 mx-1.5">›</span>
+        {deployment.commitMessage}
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">
@@ -426,6 +425,46 @@ function BuildDrillDown({ deployment }: { deployment: Deployment }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+   Stage circles — BUILD → SECURITY → TEST → DEPLOY with failure normalization
+───────────────────────────────────────────────────────────────────────────── */
+
+function StageCircles({ stages, deployPending }: { stages?: unknown; deployPending?: boolean }) {
+  const normalized = gateStages(
+    normalizeStages(stages).map(s => ({ name: s.name.toLowerCase(), status: s.status })),
+  );
+  const stageMap = new Map(normalized.map(s => [s.name, s.status]));
+
+  return (
+    <div className="flex items-center gap-1">
+      {STAGE_ORDER.map((s, i) => {
+        const st = resolveStageStatus(s.key, stageMap, deployPending === true);
+        const color =
+          st === 'success' ? 'border-emerald-400 bg-emerald-500/20 text-emerald-400' :
+          st === 'failed' ? 'border-red-400 bg-red-500/20 text-red-400' :
+          st === 'running' ? 'border-blue-400 bg-blue-500/20 text-blue-400 animate-pulse' :
+          'border-zinc-600 bg-zinc-800 text-zinc-600';
+        const lineGreen = i === 0 || (normalized[i - 1]?.status === 'success');
+        return (
+          <React.Fragment key={s.key}>
+            <div className="flex flex-col items-center gap-1.5">
+              <div className={`w-9 h-9 rounded-full border-2 flex items-center justify-center ${color}`}>
+                <s.Icon size={14} />
+              </div>
+              <span className="text-[8px] font-bold font-mono uppercase tracking-wider text-zinc-500">{s.label}</span>
+            </div>
+            {i < STAGE_ORDER.length - 1 && (
+              <div className={`w-6 h-[2px] mt-[-14px] ${
+                lineGreen ? 'bg-emerald-500/40' : 'bg-zinc-700/50'
+              }`}></div>
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
    Build run row
 ───────────────────────────────────────────────────────────────────────────── */
 
@@ -437,7 +476,7 @@ function BuildRow({ deployment, activeRollbacks, expanded, onToggle, onRollback,
   onRollback: () => void;
   onRestart: () => void;
 }) {
-  const { rollbackOperations, incidents, securityIncidents, monitoringAlerts } = usePlatform();
+  const { rollbackOperations, incidents, securityIncidents, monitoringAlerts, pluginInstallations } = usePlatform();
 
   const rollbackRef = useMemo(
     () => rollbackOperations.find(r => r.failedDeploymentId === deployment.id || r.targetDeploymentId === deployment.id),
@@ -449,6 +488,12 @@ function BuildRow({ deployment, activeRollbacks, expanded, onToggle, onRollback,
   const canRollback = deployment.status === 'failed';
   const canRestart = deployment.status === 'failed' || deployment.status === 'canceled' || deployment.status === 'rolled_back';
   const projectBusy = activeRollbacks.includes(deployment.projectId);
+  // No connected deployment provider → nothing was ever pushed, so the
+  // Deploy circle stays grey (pending) instead of showing a false failure.
+  const providerConnected = (pluginInstallations || []).some(p =>
+    p.status === 'connected' &&
+    ['vercel', 'netlify', 'plugin-vercel', 'plugin-netlify'].includes((p.pluginId || '').toLowerCase())
+  );
 
   return (
     <div className={`bg-white/[0.03] border rounded-xl overflow-hidden transition-all ${
@@ -508,6 +553,11 @@ function BuildRow({ deployment, activeRollbacks, expanded, onToggle, onRollback,
           </div>
         </div>
 
+        {/* Stage circles — centered between identity and actions */}
+        <div className="flex-1 flex justify-center">
+          <StageCircles stages={deployment.stages} deployPending={!providerConnected} />
+        </div>
+
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
           {deployment.url && (
@@ -525,9 +575,9 @@ function BuildRow({ deployment, activeRollbacks, expanded, onToggle, onRollback,
             <button
               onClick={onRestart}
               title="Restart build"
-              className="p-2 rounded-lg text-zinc-500 hover:text-blue-300 hover:bg-white/[0.04] transition-all"
+              className="p-2 rounded-lg text-zinc-500 hover:text-blue-300 hover:bg-blue-500/10 transition-all"
             >
-              <PlayCircle size={15} />
+              <RefreshCw size={15} />
             </button>
           )}
           {canRollback && (
@@ -535,27 +585,15 @@ function BuildRow({ deployment, activeRollbacks, expanded, onToggle, onRollback,
               onClick={onRollback}
               disabled={projectBusy}
               title={projectBusy ? 'Rollback already in progress' : 'Rollback to stable version'}
-              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-semibold font-mono text-red-400 border border-red-500/25 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg text-red-400 border border-red-500/25 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
-              <RotateCcw size={12} /> Rollback
+              <RotateCcw size={16} />
+              <span className="text-[8px] font-bold font-mono uppercase">Rollback</span>
             </button>
           )}
           <span className="text-zinc-600">
             {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
           </span>
-        </div>
-      </div>
-
-      {/* Pipeline stage strip — always visible on every screen size */}
-      <div className="px-4 pt-3 pb-4 border-t border-white/[0.06] flex items-center gap-3">
-        <span className="text-[9px] font-semibold uppercase tracking-wider text-zinc-600 shrink-0">Pipeline</span>
-        <div className="overflow-x-auto flex-1 min-w-0 pb-0.5">
-          <PipelineStageBar
-            stages={deployment.stages}
-            deploymentStatus={deployment.status}
-            commitHash={deployment.commitHash}
-            commitMessage={deployment.commitMessage}
-          />
         </div>
       </div>
 
@@ -570,13 +608,22 @@ function BuildRow({ deployment, activeRollbacks, expanded, onToggle, onRollback,
 
 export const PipelineCenter: React.FC = () => {
   const {
-    projects, deployments, rollbackOperations, triggerWebhookSimulation, refreshData, navigateTo,
+    projects, deployments, rollbackOperations, refreshData,
+    navigateTo,
   } = usePlatform();
 
-  const [scopeId, setScopeId] = useState<string | null>(null);
   const [filters, setFilters] = useState<{ q: string; status: string; platform: string }>({ q: '', status: 'all', platform: 'all' });
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [shown, setShown] = useState(20);
+
+  const TREND_RANGES = [
+    { label: '24h', days: 1 },
+    { label: '7 days', days: 7 },
+    { label: '14 days', days: 14 },
+    { label: '30 days', days: 30 },
+    { label: '3 months', days: 90 },
+  ] as const;
+  const [trendRange, setTrendRange] = useState(14);
   const [rollbackDep, setRollbackDep] = useState<Deployment | null>(null);
   const [newBuildOpen, setNewBuildOpen] = useState(false);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -603,21 +650,8 @@ export const PipelineCenter: React.FC = () => {
     ? deployments.reduce((acc, d) => acc + (d.durationMs || 0), 0) / deployments.length
     : 0;
 
-  const pipelines = useMemo(
-    () => projects.map(p => {
-      const builds = sorted.filter(d => d.projectId === p.id);
-      const ok = builds.filter(d => d.status === 'ready').length;
-      return {
-        project: p, builds, count: builds.length,
-        rate: builds.length ? Math.round((ok / builds.length) * 100) : 0,
-        latest: builds[0] || null,
-      };
-    }),
-    [projects, sorted],
-  );
-
   const trend = useMemo(() => {
-    const days = 14;
+    const days = trendRange;
     const slots: { key: string; label: string; success: number; failed: number }[] = [];
     const now = new Date();
     for (let i = days - 1; i >= 0; i--) {
@@ -634,12 +668,11 @@ export const PipelineCenter: React.FC = () => {
       else if (d.status === 'failed') slot.failed++;
     }
     return slots;
-  }, [deployments]);
+  }, [deployments, trendRange]);
 
   const visible = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
     return sorted.filter(d => {
-      if (scopeId && d.projectId !== scopeId) return false;
       if (filters.status !== 'all' && d.status !== filters.status) return false;
       if (filters.platform !== 'all' && d.provider !== filters.platform) return false;
       if (q) {
@@ -648,13 +681,44 @@ export const PipelineCenter: React.FC = () => {
       }
       return true;
     });
-  }, [sorted, scopeId, filters]);
+  }, [sorted, filters]);
 
   const queue = sorted.filter(d => d.status === 'queued');
   const running = sorted.filter(d => d.status === 'building');
 
+  /* ── per-service insights (replaces the environment matrix) ── */
+  const insights = useMemo(
+    () => projects.map(p => {
+      const builds = sorted.filter(d => d.projectId === p.id);
+      const ok = builds.filter(d => d.status === 'ready').length;
+      const avg = builds.length
+        ? builds.reduce((acc, d) => acc + (d.durationMs || 0), 0) / builds.length
+        : 0;
+      return {
+        project: p, builds, count: builds.length,
+        rate: builds.length ? Math.round((ok / builds.length) * 100) : 0,
+        avgDur: avg,
+        latest: builds[0] || null,
+      };
+    }),
+    [projects, sorted],
+  );
+
   /* ── reset paging when filters change ── */
-  useEffect(() => { setShown(20); }, [filters, scopeId]);
+  useEffect(() => { setShown(20); }, [filters]);
+
+  /* close trend range dropdown on outside click */
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const menu = document.getElementById('trend-range-menu');
+      const btn = menu?.previousElementSibling;
+      if (menu && !menu.contains(e.target as Node) && btn && !btn.contains(e.target as Node)) {
+        menu.classList.add('hidden');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   /* ── toast autodismiss ── */
   useEffect(() => {
@@ -674,15 +738,43 @@ export const PipelineCenter: React.FC = () => {
 
   const showToast = useCallback((type: 'success' | 'error', msg: string) => setToast({ type, msg }), []);
 
-  const handleBuildNow = (p: Project) => {
-    setNewBuildOpen(false);
-    triggerWebhookSimulation(p.id);
-    showToast('success', `Build dispatched for ${p.name} — queued in the pipeline.`);
+  const runDispatch = async (p: Project) => {
+    setBusy(b => ({ ...b, [`build-${p.id}`]: true }));
+    try {
+      // Dispatch a real stored run: backend fetches the repo pipeline file,
+      // stores a queued deployment, then walks it to stopped-before-deploy.
+      const res = await api.deployments.dispatch(p.id);
+      const pipe = res.pipeline || { path: 'ci.yml', job_count: 0, step_count: 0 };
+      showToast('success',
+        `Build queued from ${pipe.path} — ${pipe.job_count} job${pipe.job_count === 1 ? '' : 's'}, ` +
+        `${pipe.step_count} steps. Watch Queue & Executors.`);
+      await refreshData();
+      // Poll while the background run progresses (queued → building → stopped).
+      for (let i = 0; i < 15; i++) {
+        await new Promise(r => setTimeout(r, 4000));
+        await refreshData();
+      }
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : `Could not dispatch a build for ${p.name}.`);
+    } finally {
+      setBusy(b => ({ ...b, [`build-${p.id}`]: false }));
+    }
   };
 
-  const handleRestart = (d: Deployment) => {
-    triggerWebhookSimulation(d.projectId);
-    showToast('success', `Restart dispatched for ${d.projectName} — new build queued.`);
+  const handleBuildNow = async (p: Project) => {
+    setNewBuildOpen(false);
+    await runDispatch(p);
+  };
+
+  const handleRestart = async (d: Deployment) => {
+    const project = projects.find(p => p.id === d.projectId);
+    if (!project) {
+      showToast('error', `Could not restart — project for ${d.projectName} not found.`);
+      return;
+    }
+    // Re-run dispatches the same real flow (repo file + latest commit),
+    // never fabricated commit data.
+    await runDispatch(project);
   };
 
   const handleRefresh = async () => {
@@ -697,17 +789,10 @@ export const PipelineCenter: React.FC = () => {
     }
   };
 
-  /* ── environment matrix ── */
-  const matrixEnvs = useMemo(() => {
-    const present: string[] = Array.from(new Set(projects.map(p => p.environment)));
-    return ENV_ORDER.filter(e => present.includes(e)).concat(present.filter(e => !ENV_ORDER.includes(e)));
-  }, [projects]);
-
   const metrics: Array<{ label: string; value: string; icon: LucideIcon; color: string; pulse?: boolean }> = [
     { label: 'Total Builds', value: String(total), icon: Activity, color: 'text-white' },
     { label: 'Passing', value: String(successCount), icon: CheckCircle2, color: 'text-emerald-400' },
     { label: 'Failed', value: String(failedCount), icon: XCircle, color: 'text-red-400' },
-    { label: 'Running', value: String(runningCount), icon: Loader2, color: 'text-blue-400', pulse: true },
     { label: 'Success Rate', value: `${successRate}%`, icon: ShieldCheck, color: successRate >= 90 ? 'text-emerald-400' : successRate >= 70 ? 'text-amber-400' : 'text-red-400' },
     { label: 'Avg Duration', value: fmtDur(avgDur), icon: Clock3, color: 'text-zinc-300' },
   ];
@@ -782,7 +867,7 @@ export const PipelineCenter: React.FC = () => {
       </div>
 
       {/* Metrics */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
         {metrics.map((m, i) => {
           const Icon = m.icon;
           return (
@@ -810,12 +895,39 @@ export const PipelineCenter: React.FC = () => {
               <div className="w-6 h-6 rounded-md bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-zinc-400">
                 <TrendingUp size={13} />
               </div>
-              <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">14-Day Build Trend</h4>
+              <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">Build Trend</h4>
               <span className="text-[10px] font-mono text-zinc-500">all pipelines</span>
             </div>
-            <div className="flex gap-3 text-[10px] font-mono">
-              <span className="flex items-center gap-1 text-emerald-400"><span className="w-2 h-2 rounded-full bg-emerald-400"></span>Passed</span>
-              <span className="flex items-center gap-1 text-red-400"><span className="w-2 h-2 rounded-full bg-red-400"></span>Failed</span>
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    const el = document.getElementById('trend-range-menu');
+                    if (el) el.classList.toggle('hidden');
+                  }}
+                  className="flex items-center gap-1.5 text-[10px] font-mono text-zinc-400 bg-white/[0.04] border border-white/[0.08] rounded-md px-2 py-1 hover:bg-white/[0.06] transition-colors cursor-pointer"
+                >
+                  {TREND_RANGES.find(r => r.days === trendRange)?.label}
+                  <ChevronDown size={10} />
+                </button>
+                <div id="trend-range-menu" className="hidden absolute right-0 top-full mt-1 bg-[#1a1a24] border border-white/[0.08] rounded-lg shadow-xl z-50 py-1 min-w-[100px]">
+                  {TREND_RANGES.map(r => (
+                    <button
+                      key={r.days}
+                      onClick={() => { setTrendRange(r.days); document.getElementById('trend-range-menu')?.classList.add('hidden'); }}
+                      className={`w-full text-left px-3 py-1.5 text-[11px] font-mono transition-colors cursor-pointer ${
+                        trendRange === r.days ? 'text-blue-400 bg-blue-500/10' : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
+                      }`}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-3 text-[10px] font-mono">
+                <span className="flex items-center gap-1 text-emerald-400"><span className="w-2 h-2 rounded-full bg-emerald-400"></span>Passed</span>
+                <span className="flex items-center gap-1 text-red-400"><span className="w-2 h-2 rounded-full bg-red-400"></span>Failed</span>
+              </div>
             </div>
           </div>
           <div className="h-48">
@@ -883,7 +995,7 @@ export const PipelineCenter: React.FC = () => {
                     <div className="absolute inset-0 bg-blue-400/30 animate-pulse rounded-full" />
                   </div>
                   <div className="flex flex-wrap gap-1 mt-2">
-                    {(d.stages || []).map((s, i) => (
+                    {normalizeStages(d.stages).map((s, i) => (
                       <span key={i} className={`text-[8px] font-mono uppercase px-1.5 py-0.5 rounded border ${STAGE_TEXT_CLASS[s.status]} border-white/[0.06]`}>
                         {s.status === 'running' ? '…' : s.status}
                       </span>
@@ -896,69 +1008,13 @@ export const PipelineCenter: React.FC = () => {
         </div>
       </div>
 
-      {/* Pipelines rail + Build history */}
-      <div className="grid grid-cols-1 xl:grid-cols-[260px_1fr] gap-4">
-        {/* Pipelines (jobs) */}
-        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 h-fit">
-          <SectionTitle
-            icon={Layers}
-            title="Pipelines"
-            sub={pipelines.length ? `${pipelines.length} jobs` : undefined}
-          />
-          <div className="space-y-1">
-            <button
-              onClick={() => setScopeId(null)}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-all ${
-                scopeId === null ? 'bg-white/10 text-white' : 'text-zinc-400 hover:bg-white/[0.04]'
-              }`}
-            >
-              <span className="flex items-center gap-2 text-xs font-medium">
-                <Activity size={13} /> All Pipelines
-              </span>
-              <span className="text-[10px] font-mono text-zinc-500">{sorted.length}</span>
-            </button>
-            {pipelines.map(p => (
-              <button
-                key={p.project.id}
-                onClick={() => setScopeId(scopeId === p.project.id ? null : p.project.id)}
-                className={`w-full text-left px-3 py-2 rounded-lg transition-all ${
-                  scopeId === p.project.id ? 'bg-white/10' : 'hover:bg-white/[0.04]'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className={`flex items-center gap-2 text-xs font-medium min-w-0 ${scopeId === p.project.id ? 'text-white' : 'text-zinc-300'}`}>
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${p.latest ? STATUS_META[p.latest.status].dot : 'bg-zinc-700'} ${p.latest?.status === 'building' ? 'animate-pulse' : ''}`} />
-                    <span className="truncate">{p.project.name}</span>
-                  </span>
-                  <span className="text-[9px] font-mono text-zinc-500 shrink-0">{p.count} builds</span>
-                </div>
-                <div className="mt-1.5 flex items-center justify-between pl-4">
-                  <WeatherDots builds={p.builds} />
-                  <span className={`text-[9px] font-bold font-mono ${
-                    p.rate >= 90 ? 'text-emerald-400' : p.rate >= 70 ? 'text-amber-400' : 'text-red-400'
-                  }`}>
-                    {p.rate}%
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
-
-          <button
-            onClick={() => navigateTo('rollback-recovery')}
-            className="mt-4 w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-[11px] text-purple-300 font-medium transition-all"
-          >
-            <RotateCcw size={12} /> Recovery & Rollback Center
-          </button>
-        </div>
-
-        {/* Build history */}
-        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
-          <SectionTitle
-            icon={Terminal}
-            title={scopeId ? pipelines.find(p => p.project.id === scopeId)?.project.name || 'Build History' : 'Build History'}
-            sub={`${visible.length} shown`}
-          />
+      {/* Build history */}
+      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
+        <SectionTitle
+          icon={Terminal}
+          title="Build History"
+          sub={`${visible.length} shown`}
+        />
 
           {/* Filters */}
           <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center mb-4">
@@ -1024,17 +1080,16 @@ export const PipelineCenter: React.FC = () => {
               </button>
             )}
           </div>
-        </div>
       </div>
 
-      {/* Environment matrix */}
+      {/* Service insights */}
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
         <SectionTitle
-          icon={GitBranch}
-          title="Environment Matrix"
-          sub="latest build per service"
-          right={pipelines.length ? (
-            <span className="text-[10px] font-mono text-zinc-500">{pipelines.length} services</span>
+          icon={Activity}
+          title="Service Insights"
+          sub="per-service build health"
+          right={insights.length ? (
+            <span className="text-[10px] font-mono text-zinc-500">{insights.length} services</span>
           ) : undefined}
         />
         <div className="overflow-x-auto">
@@ -1042,49 +1097,39 @@ export const PipelineCenter: React.FC = () => {
             <thead>
               <tr className="border-b border-white/[0.06] text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">
                 <th className="py-2.5 pr-3">Service</th>
-                <th className="py-2.5 pr-3">Branch</th>
-                <th className="py-2.5 pr-3">Platform</th>
-                {matrixEnvs.map(e => <th key={e} className="py-2.5 pr-3">{e}</th>)}
+                <th className="py-2.5 pr-3">Success rate</th>
+                <th className="py-2.5 pr-3">Avg duration</th>
+                <th className="py-2.5 pr-3">Total builds</th>
+                <th className="py-2.5 pr-3">Last build</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.04]">
-              {pipelines.map(p => {
-                const latest = p.latest;
-                return (
-                  <tr key={p.project.id} className="hover:bg-white/[0.02] transition-all">
-                    <td className="py-2.5 pr-3">
-                      <button
-                        onClick={() => setScopeId(scopeId === p.project.id ? null : p.project.id)}
-                        className="text-zinc-200 font-medium hover:text-white text-left"
-                      >
-                        {p.project.name}
-                      </button>
-                    </td>
-                    <td className="py-2.5 pr-3 font-mono text-zinc-500">{p.project.branch}</td>
-                    <td className="py-2.5 pr-3">
-                      <span className="text-[9px] font-bold uppercase font-mono px-1.5 py-0.5 rounded border border-white/[0.06] bg-white/[0.03] text-zinc-400">
-                        {p.project.provider}
-                      </span>
-                    </td>
-                    {matrixEnvs.map(e => (
-                      <td key={e} className="py-2.5 pr-3">
-                        {p.project.environment === e ? (
-                          latest ? (
-                            <StatusChip status={latest.status} />
-                          ) : (
-                            <span className="text-[10px] font-mono text-zinc-700">no builds</span>
-                          )
-                        ) : (
-                          <span className="text-[10px] font-mono text-zinc-800">—</span>
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                );
-              })}
+              {insights.map(s => (
+                <tr key={s.project.id} className="hover:bg-white/[0.02] transition-all">
+                  <td className="py-2.5 pr-3">
+                    <span className="text-zinc-200 font-medium">{s.project.name}</span>
+                  </td>
+                  <td className="py-2.5 pr-3">
+                    <span className={`text-[11px] font-bold font-mono ${
+                      s.rate >= 90 ? 'text-emerald-400' : s.rate >= 70 ? 'text-amber-400' : 'text-red-400'
+                    }`}>
+                      {s.count === 0 ? '—' : `${s.rate}%`}
+                    </span>
+                  </td>
+                  <td className="py-2.5 pr-3 font-mono text-zinc-400">{s.count === 0 ? '—' : fmtDur(s.avgDur)}</td>
+                  <td className="py-2.5 pr-3 font-mono text-zinc-300 font-bold">{s.count}</td>
+                  <td className="py-2.5 pr-3">
+                    {s.latest ? (
+                      <StatusChip status={s.latest.status} />
+                    ) : (
+                      <span className="text-[10px] font-mono text-zinc-700">no builds</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
-          {pipelines.length === 0 && (
+          {insights.length === 0 && (
             <div className="py-8 text-center text-xs text-zinc-600">No services registered yet.</div>
           )}
         </div>

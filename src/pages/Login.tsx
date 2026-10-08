@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import { isApiAvailable, api } from '../services/api';
-import { Terminal, Lock, Mail, Github, UserPlus, LogIn, CheckCircle } from 'lucide-react';
+import { Terminal, Lock, Mail, Github, UserPlus, LogIn, CheckCircle, Sun, Moon, Monitor } from 'lucide-react';
 
 export const Login: React.FC = () => {
-  const { loginUser } = usePlatform();
+  const { loginUser, theme, setTheme } = usePlatform();
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -117,6 +117,30 @@ export const Login: React.FC = () => {
     <div className="min-h-screen bg-dark-950 flex flex-col justify-center items-center px-4 relative overflow-hidden">
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-white/[0.01] rounded-full blur-3xl -z-10" />
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-white/[0.01] rounded-full blur-3xl -z-10" />
+
+      {/* Theme switcher */}
+      <div className="absolute top-5 right-5 z-10">
+        <div className="inline-flex items-center gap-0.5 rounded-lg border border-white/[0.08] bg-white/[0.04] p-0.5">
+          {([
+            { value: 'light' as const, icon: Sun, label: 'Light' },
+            { value: 'dark' as const, icon: Moon, label: 'Dark' },
+            { value: 'system' as const, icon: Monitor, label: 'System' },
+          ]).map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => setTheme(opt.value)}
+              className={`p-1.5 rounded-md transition-colors ${
+                theme === opt.value
+                  ? 'bg-white/10 text-white'
+                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.04]'
+              }`}
+              title={opt.label}
+            >
+              <opt.icon size={14} />
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="w-full max-w-md bg-white/[0.03] border border-white/[0.06] rounded-2xl shadow-2xl p-8 relative">
         {/* Header */}

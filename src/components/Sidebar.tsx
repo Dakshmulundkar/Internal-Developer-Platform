@@ -24,7 +24,7 @@ export const Sidebar: React.FC = () => {
       badge: openIncidentsCount > 0 ? openIncidentsCount : undefined,
       badgeColor: 'bg-red-500/10 text-red-400 border border-red-500/20' },
     { id: 'rollback-recovery', label: 'Rollback & Recovery', icon: RefreshCw },
-    { id: 'automation',        label: 'Automation',          icon: Zap },
+    { id: 'automation',        label: 'Pipelines',          icon: Zap },
     { id: 'scheduled-tasks',   label: 'Scheduled Tasks',     icon: CalendarClock },
     { id: 'notifications',     label: 'Notifications',       icon: Bell,
       badge: unreadNotificationsCount > 0 ? unreadNotificationsCount : undefined,

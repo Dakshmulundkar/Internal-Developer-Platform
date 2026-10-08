@@ -195,6 +195,15 @@ export type PluginCategory = 'deployment' | 'monitoring' | 'error_tracking' | 'c
 export type PluginAuthMethod = 'api_key' | 'oauth' | 'webhook' | 'basic_auth';
 export type PluginStatus = 'connected' | 'disconnected' | 'syncing' | 'error' | 'not_installed';
 
+export interface PluginConfigField {
+  key: string;
+  label: string;
+  placeholder?: string;
+  secret?: boolean;
+  textarea?: boolean;
+  help?: string;
+}
+
 export interface PluginDefinition {
   id: string;
   name: string;
@@ -208,6 +217,7 @@ export interface PluginDefinition {
   docsUrl?: string;
   iconColor: string;      // Tailwind color class for icon accent
   iconLabel: string;      // Short label shown in icon badge
+  configFields?: PluginConfigField[];  // extra per-plugin settings (org, app key, …)
 }
 
 export interface PluginInstallation {
@@ -226,6 +236,7 @@ export interface PluginInstallation {
   installedAt: string;
   installedById: string;
   enabledForProjects: string[];   // IDP project IDs
+  configData?: Record<string, unknown>; // extra per-plugin settings (org, app key, …)
   recentEvents?: { message: string; timestamp: string; type: 'info' | 'error' | 'success' }[];
   errorMessage?: string;
 }
@@ -237,7 +248,11 @@ export interface PluginInstallation {
 export type AlertSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export type AlertStatus = 'firing' | 'resolved' | 'pending' | 'no_data';
 // 'datadog' is used across Dashboard, Monitoring, Incidents, DeploymentDetails
-export type AlertSource = 'grafana' | 'newrelic' | 'sentry' | 'vercel' | 'netlify' | 'datadog';
+export type AlertSource = 'grafana' | 'newrelic' | 'sentry' | 'vercel' | 'netlify' | 'datadog'
+  | 'uptimerobot' | 'rollbar' | 'bugsnag' | 'pagerduty' | 'opsgenie'
+  | 'prometheus' | 'elastic' | 'dynatrace' | 'honeycomb' | 'statuspage'
+  | 'victorops' | 'sonarqube' | 'snyk' | 'argocd' | 'raygun' | 'airbrake'
+  | 'kubernetes' | 'cloudwatch';
 
 export interface MonitoringAlert {
   id: string;

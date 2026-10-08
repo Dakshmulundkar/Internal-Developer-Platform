@@ -38,7 +38,7 @@ function PageLoader() {
 }
 
 const AppContent: React.FC = () => {
-  const { user, currentPage } = usePlatform();
+  const { user, currentPage, authReady } = usePlatform();
 
   // Public, auth-free share routes: /share/{type}/{id}?token=...
   if (window.location.pathname.startsWith('/share/')) {
@@ -46,6 +46,19 @@ const AppContent: React.FC = () => {
       <Suspense fallback={<PageLoader />}>
         <ShareView />
       </Suspense>
+    );
+  }
+
+  // Hydration gate: never redirect to login before the stored session
+  // has been validated, or a hard reload will flash-kick real sessions.
+  if (!authReady) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-dark-950">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-6 h-6 rounded-full border-2 border-zinc-700 border-t-zinc-300 animate-spin" />
+          <p className="text-xs text-zinc-500 font-mono">Restoring session…</p>
+        </div>
+      </div>
     );
   }
 

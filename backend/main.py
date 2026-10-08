@@ -107,6 +107,7 @@ from routers import incidents  # noqa: E402
 from routers import monitoring  # noqa: E402
 from routers import notifications  # noqa: E402
 from routers import plugins  # noqa: E402
+from routers import plugin_oauth  # noqa: E402
 from routers import projects  # noqa: E402
 from routers import rollback  # noqa: E402
 from routers import search  # noqa: E402
@@ -133,6 +134,7 @@ app.include_router(audit.router, prefix="/audit", tags=["audit"])
 app.include_router(ai.router, prefix="/ai", tags=["ai"])
 app.include_router(monitoring.router, prefix="/monitoring", tags=["monitoring"])
 app.include_router(plugins.router, prefix="/plugins", tags=["plugins"])
+app.include_router(plugin_oauth.router, prefix="/plugins/oauth", tags=["plugins-oauth"])
 app.include_router(comments.router, prefix="/comments", tags=["comments"])
 app.include_router(team.router, prefix="/team", tags=["team"])
 app.include_router(search.router, prefix="/search", tags=["search"])

@@ -8,6 +8,8 @@ from database import supabase
 from dependencies import get_current_user, get_user_project_ids
 from models.project import ProjectCreate, ProjectResponse, ProjectUpdate
 from services import audit_service
+from services.pipeline_file import PipelineFileError, check_repo, fetch_definition
+from services.plugins import crypto
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -108,3 +110,75 @@ async def delete_project(project_id: str, current_user=Depends(get_current_user)
         project_id=project_id,
     )
     return {"success": True}
+
+
+def _normalize_repo(owner: str, repo: str) -> tuple[str, str]:
+    """Accept a full URL, `owner/repo`, or a bare name — always return (owner, repo).
+
+    Users paste whatever the onboarding form accepted, e.g.
+    `https://github.com/Dakshmulundkar/Internal-Developer-Platform.git`.
+    """
+    text = (repo or "").strip()
+    # Full URL form.
+    if "://" in text:
+        parts = [p for p in text.rstrip("/").split("/") if p]
+        if len(parts) >= 2:
+            owner = owner or parts[-2]
+            text = parts[-1]
+    # `owner/repo` form.
+    if "/" in text:
+        maybe_owner, maybe_repo = text.split("/", 1)
+        owner = owner or maybe_owner
+        text = maybe_repo
+    if text.endswith(".git"):
+        text = text[:-4]
+    return owner.strip(), text.strip()
+
+
+def _user_github_token(user_id: str) -> str:
+    """Decrypt the user's GitHub plugin token, if they connected GitHub."""
+    try:
+        res = supabase.table("plugin_installations").select("api_key_encrypted,plugin_id").eq(
+            "installed_by", user_id).execute()
+        for row in res.data or []:
+            if "github" in str(row.get("plugin_id") or ""):
+                token = crypto.decrypt_key(row.get("api_key_encrypted"))
+                if token and "••••" not in token:
+                    return token
+    except Exception as exc:
+        logger.debug("GitHub token lookup failed: %s", exc)
+    return ""
+
+
+@router.get("/{project_id}/pipeline-file", summary="Fetch the project's CI workflow file from GitHub")
+async def get_pipeline_file(project_id: str, current_user=Depends(get_current_user)):
+    """Return the repo's pipeline definition (ci.yml or first workflow file).
+
+    Looks up `.github/workflows/ci.yml` (then siblings), falling back to the
+    first `.yml`/`.yaml` file in `.github/workflows`. Parses jobs/steps so the
+    frontend can show what a build would run. Tokens stay server-side.
+    """
+    user_id = str(current_user.id)
+    res = supabase.table("projects").select("*").eq("id", project_id).single().execute()
+    if not res.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    project = res.data
+    if project.get("owner_id") != user_id and project_id not in get_user_project_ids(user_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    owner, repo = project.get("repo_owner") or "", project.get("repo_name") or ""
+    branch = project.get("branch") or "main"
+    # Normalize: repo_name may hold a full URL, `owner/repo`, or a bare name
+    # (users paste whatever the onboarding form accepted).
+    owner, repo = _normalize_repo(owner, repo)
+    if not owner or not repo:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Project has no GitHub repository linked.")
+
+    token = _user_github_token(user_id)
+
+    try:
+        await check_repo(owner, repo, branch, token)
+        return await fetch_definition(owner, repo, branch, token)
+    except PipelineFileError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail)

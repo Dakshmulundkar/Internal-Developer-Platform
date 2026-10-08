@@ -64,6 +64,21 @@ class Settings(BaseSettings):
     # Without this, anonymous callers are rejected (fail-closed).
     EVENT_INTAKE_TOKEN: str = ""
 
+    # ── Plugin API key encryption (Fernet) ─────────────────────────────
+    # REQUIRED in production. Generate with:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Without this, keys are stored as-is (dev convenience only — loud warning).
+    FERNET_KEY: str = ""
+
+    # ── Plugin OAuth (Slack / Microsoft Teams) ─────────────────────────
+    # Without these, OAuth connect buttons report "not configured" and the
+    # paste-a-token path keeps working.
+    SLACK_CLIENT_ID: str = ""
+    SLACK_CLIENT_SECRET: str = ""
+    MS_CLIENT_ID: str = ""
+    MS_CLIENT_SECRET: str = ""
+    MS_TENANT_ID: str = "common"
+
     # ── Logging / runtime ─────────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
     ENVIRONMENT: str = "development"

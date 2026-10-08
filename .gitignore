@@ -43,3 +43,7 @@ __pycache__/
 backend/venv/
 
 .env.production
+
+# Brag videos / launch renders (large generated media, never commit)
+brag-output/
+brag-output-*/
