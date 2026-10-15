@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { usePlatform } from '../context/PlatformContext';
 import { aiExplanations } from '../data/seedData';
+import { isApiAvailable, api } from '../services/api';
 import {
   Search, ArrowLeft, ChevronDown, CheckCircle, RefreshCw,
   Settings, Code, ExternalLink, ChevronRight, AlertTriangle,
-  MessageSquare, Zap, Terminal, Send, Filter, Share2, Shield
+  MessageSquare, Zap, Terminal, Send, Filter, Share2, Shield, UserPlus
 } from 'lucide-react';
 import { MentionInput } from '../components/MentionInput';
 import { MentionText } from '../components/MentionText';
@@ -121,6 +122,7 @@ export const Incidents: React.FC = () => {
     incidents, deployments, monitoringAlerts, navigateTo,
     addComment, resolveIncident, updateIncident, user,
     activeIncidentId, teamMembers, projects, activeProjectId,
+    loadIncidentDetail, ignoreIncident, submitIncidentFeedback,
   } = usePlatform();
 
   // Role-based enforcement — find the current user's role in the active project
@@ -137,19 +139,49 @@ export const Incidents: React.FC = () => {
   const [resolveOpen, setResolveOpen] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [ignoreOpen, setIgnoreOpen] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
   const resolveRef = useRef<HTMLDivElement>(null);
   const ignoreRef = useRef<HTMLDivElement>(null);
+  const assignRef = useRef<HTMLDivElement>(null);
   const [feedbackIsReal, setFeedbackIsReal] = useState<boolean | null>(null);
   const [feedbackComment, setFeedbackComment] = useState('');
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');
   const [commentText, setCommentText] = useState('');
+  const [aiSteps, setAiSteps] = useState<{ title: string; description: string }[] | null>(null);
+  const [aiStepsGeneric, setAiStepsGeneric] = useState(false);
+
+  // AI remediation for the selected incident (replaces seed-text steps when
+  // the backend returns generated ones; static list stays as the fallback).
+  useEffect(() => {
+    setAiSteps(null);
+    setAiStepsGeneric(false);
+    if (!selectedId || !isApiAvailable()) return;
+    let cancelled = false;
+    api.incidents.remediation(selectedId)
+      .then(res => {
+        if (cancelled) return;
+        if (Array.isArray(res.steps) && res.steps.length > 0) {
+          setAiSteps(res.steps);
+          setAiStepsGeneric(!!res.generic);
+        }
+      })
+      .catch(() => { /* static fallback stays */ });
+    return () => { cancelled = true; };
+  }, [selectedId]);
+
+  // Comments / timeline / feedback live server-side only — hydrate on select so
+  // the Feedback and Activity tabs show what teammates actually wrote.
+  useEffect(() => {
+    if (selectedId) loadIncidentDetail(selectedId);
+  }, [selectedId]);
 
   // Task 11d — Click-outside effect
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (resolveRef.current && !resolveRef.current.contains(e.target as Node)) setResolveOpen(false);
       if (ignoreRef.current && !ignoreRef.current.contains(e.target as Node)) setIgnoreOpen(false);
+      if (assignRef.current && !assignRef.current.contains(e.target as Node)) setAssignOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -180,6 +212,18 @@ export const Incidents: React.FC = () => {
   });
 
   const selectedIncident = incidents.find(i => i.id === selectedId);
+
+  // Assign is admin-only, scoped to the ticket's own project (solo users default to admin,
+  // matching userProjectRole above).
+  const incidentMembers = selectedIncident
+    ? teamMembers.filter(tm => tm.projectId === selectedIncident.projectId)
+    : [];
+  const isAdminForIncident = selectedIncident
+    ? (teamMembers.find(
+        tm => tm.projectId === selectedIncident.projectId && tm.userId === user?.id
+      )?.role ?? 'admin') === 'admin'
+    : false;
+
   const deployment = selectedIncident?.deploymentId
     ? deployments.find(d => d.id === selectedIncident.deploymentId)
     : undefined;
@@ -396,7 +440,7 @@ export const Incidents: React.FC = () => {
 
   // Activity tab data — merged timeline + comments
   type ActivityItem =
-    | { kind: 'timeline'; event: string; timestamp: string; type: 'alert' | 'comment' | 'action' | 'status_change' }
+    | { kind: 'timeline'; event: string; timestamp: string; type: 'alert' | 'comment' | 'action' | 'status_change' | 'resolve' | 'ignore' | 'assign' | 'feedback' }
     | { kind: 'comment'; id: string; userName: string; userAvatar: string; content: string; timestamp: string };
 
   const allActivity: ActivityItem[] = [
@@ -413,7 +457,7 @@ export const Incidents: React.FC = () => {
 
   const filteredActivity = allActivity.filter(item => {
     if (activityFilter === 'all') return true;
-    if (activityFilter === 'actions') return item.kind === 'timeline' && (item.type === 'alert' || item.type === 'status_change');
+    if (activityFilter === 'actions') return item.kind === 'timeline' && item.type !== 'comment';
     if (activityFilter === 'comments') return item.kind === 'comment' || (item.kind === 'timeline' && item.type === 'comment');
     return true;
   });
@@ -434,12 +478,54 @@ export const Incidents: React.FC = () => {
           {sourceLabel(selectedIncident.provider)}
         </span>
         <h2 className="text-xl font-semibold text-white tracking-tight">{selectedIncident.title}</h2>
-        <button
-          onClick={() => setShowShare(true)}
-          className="ml-auto flex items-center gap-1.5 bg-dark-800 text-zinc-300 border border-white/[0.06] text-xs font-medium px-3 py-1.5 rounded-md transition-all hover:bg-dark-700"
-        >
-          <Share2 size={12} /> Share
-        </button>
+        {isAdminForIncident ? (
+          <div className="relative ml-auto" ref={assignRef}>
+            <button
+              onClick={() => { setAssignOpen(!assignOpen); setResolveOpen(false); setIgnoreOpen(false); }}
+              className="flex items-center gap-1.5 bg-white text-black hover:bg-zinc-200 text-xs font-medium px-3 py-1.5 rounded-md transition-all"
+            >
+              Assign <ChevronDown size={12} />
+            </button>
+            {assignOpen && (
+              <div className="absolute top-full right-0 mt-1 w-64 bg-dark-900 glass border border-white/[0.06] rounded-lg shadow-xl z-30 py-1">
+                {incidentMembers.length === 0 && (
+                  <div className="px-4 py-2.5 text-xs text-zinc-500">
+                    No teammates in this project yet.
+                  </div>
+                )}
+                {incidentMembers.map(tm => (
+                  <div
+                    key={tm.id}
+                    onClick={() => {
+                      updateIncident(selectedIncident.id, { assignedTo: tm.name });
+                      setAssignOpen(false);
+                    }}
+                    className={`flex items-center gap-2.5 px-4 py-2.5 text-xs cursor-pointer transition-colors hover:bg-white/[0.03] hover:text-white ${
+                      selectedIncident.assignedTo === tm.name ? 'text-white' : 'text-zinc-300'
+                    }`}
+                  >
+                    {tm.avatarUrl ? (
+                      <img src={tm.avatarUrl} alt="" className="w-5 h-5 rounded-full shrink-0" />
+                    ) : (
+                      <span className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center text-[9px] font-semibold shrink-0">
+                        {tm.name.charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                    <span className="flex-1 truncate">{tm.name}</span>
+                    <span className="text-[9px] uppercase tracking-wider text-zinc-500">{tm.role}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowShare(true)}
+            className="ml-auto flex items-center gap-1.5 bg-dark-800 text-zinc-300 border border-white/[0.06] text-xs font-medium px-3 py-1.5 rounded-md transition-all hover:bg-dark-700"
+          >
+            <Share2 size={12} /> Share
+          </button>
+        )}
       </div>
 
       {showShare && (
@@ -777,6 +863,37 @@ export const Incidents: React.FC = () => {
                   <CheckCircle size={14} /> Feedback submitted successfully.
                 </div>
               )}
+              {/* Feedback history — everyone's entries, newest first */}
+              {(selectedIncident.feedback?.length ?? 0) > 0 && (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">History</p>
+                  {selectedIncident.feedback!.map(fb => (
+                    <div key={fb.id} className="flex gap-3 bg-black/20 border border-white/[0.06] rounded-lg p-3">
+                      <span className="w-7 h-7 shrink-0 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-semibold text-zinc-200">
+                        {(fb.userName || '?').charAt(0).toUpperCase()}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-medium text-zinc-200">{fb.userName || 'Unknown'}</span>
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold uppercase border ${
+                            fb.isReal
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                          }`}>
+                            {fb.isReal ? 'real incident' : 'false positive'}
+                          </span>
+                          <span className="text-[10px] text-zinc-600 font-mono">{relativeTime(fb.createdAt)}</span>
+                        </div>
+                        {fb.comment && (
+                          <p className="text-xs text-zinc-400 mt-1 whitespace-pre-wrap break-words">
+                            <MentionText content={fb.comment} />
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {/* Task 9a — Is this real toggle */}
               <div>
                 <p className="text-xs font-semibold text-zinc-200 mb-2">Is this a real incident?</p>
@@ -813,15 +930,13 @@ export const Incidents: React.FC = () => {
               </div>
               <button
                 onClick={() => {
-                  if (feedbackComment.trim()) addComment(selectedIncident.id, feedbackComment);
-                  updateIncident(selectedIncident.id, {
-                    feedbackIsReal: feedbackIsReal ?? undefined,
-                    feedbackComment,
-                  });
+                  if (feedbackIsReal === null) return;
+                  submitIncidentFeedback(selectedIncident.id, feedbackIsReal, feedbackComment.trim());
                   setFeedbackSubmitted(true);
                   setFeedbackComment('');
                 }}
-                className="bg-white text-black hover:bg-zinc-200 font-medium text-xs px-4 py-2 rounded-lg transition-all"
+                disabled={feedbackIsReal === null}
+                className="bg-white text-black hover:bg-zinc-200 font-medium text-xs px-4 py-2 rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Submit
               </button>
@@ -903,12 +1018,16 @@ export const Incidents: React.FC = () => {
 
                   // timeline event
                   const iconMap = {
-                    alert:         { Icon: AlertTriangle, color: 'text-red-400' },
-                    comment:       { Icon: MessageSquare, color: 'text-zinc-400' },
-                    status_change: { Icon: CheckCircle,   color: 'text-emerald-400' },
-                    action:        { Icon: Zap,           color: 'text-blue-400' },
-                  };
-                  const { Icon, color } = iconMap[item.type] || iconMap.action;
+    alert:         { Icon: AlertTriangle, color: 'text-red-400' },
+    comment:       { Icon: MessageSquare, color: 'text-zinc-400' },
+    status_change: { Icon: CheckCircle,   color: 'text-emerald-400' },
+    action:        { Icon: Zap,           color: 'text-blue-400' },
+    resolve:       { Icon: CheckCircle,   color: 'text-emerald-400' },
+    ignore:        { Icon: Filter,        color: 'text-zinc-500' },
+    assign:        { Icon: UserPlus,      color: 'text-blue-400' },
+    feedback:      { Icon: MessageSquare, color: 'text-violet-400' },
+  };
+  const { Icon, color } = iconMap[item.type] || iconMap.action;
 
                   return (
                     <div key={idx} className="relative flex gap-3 pb-4 items-start">
@@ -1002,7 +1121,7 @@ export const Incidents: React.FC = () => {
                         <div
                           key={opt}
                           onClick={() => {
-                            updateIncident(selectedIncident.id, { ignoredReason: opt, status: 'resolved' });
+                            ignoreIncident(selectedIncident.id, opt);
                             setIgnoreOpen(false);
                             setSelectedId(null);
                           }}
@@ -1062,9 +1181,19 @@ export const Incidents: React.FC = () => {
 
           {/* Task 13 — How to remediate */}
           <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
-            <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider mb-4">How to remediate</h4>
+            <div className="flex items-center gap-2 mb-4">
+              <h4 className="text-xs font-semibold text-zinc-100 uppercase tracking-wider">How to remediate</h4>
+              {aiSteps && (
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/20">
+                  {aiStepsGeneric ? 'GENERIC' : 'AI-GENERATED'}
+                </span>
+              )}
+            </div>
             <div className="space-y-0 divide-y divide-white/[0.06]">
-              {getRemediationSteps(selectedIncident.deploymentId).map((step, idx) => {
+              {(aiSteps
+                ? aiSteps.map(s => ({ icon: ChevronRight, title: s.title, description: s.description, isResolveLink: false as const }))
+                : getRemediationSteps(selectedIncident.deploymentId)
+              ).map((step, idx) => {
                 const Icon = step.icon;
                 return (
                   <div key={idx} className="flex gap-3 items-start py-3">

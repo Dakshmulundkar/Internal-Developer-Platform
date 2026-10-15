@@ -10,6 +10,36 @@ from services.plugins.registry import get_adapter, normalize_plugin_id
 
 logger = logging.getLogger(__name__)
 
+# Minimum seconds between syncs per plugin. Quiet sources poll rarely;
+# chatty ones (deploy webhooks already stream in) stay fresh. The scheduler
+# tick may fire more often — this gate keeps the fan-out bounded.
+SYNC_INTERVALS = {
+    "plugin-uptimerobot": 60,
+    "plugin-circleci": 120,
+    "plugin-render": 120,
+    "plugin-railway": 120,
+    "plugin-jenkins": 300,
+    "plugin-travisci": 300,
+    "plugin-teamcity": 300,
+    "plugin-heroku": 300,
+    "plugin-terraform": 300,
+}
+DEFAULT_SYNC_INTERVAL = 300
+
+
+def _sync_due(plugin: dict, now: float) -> bool:
+    from datetime import datetime
+
+    last = plugin.get("last_sync_at") or ""
+    if not last:
+        return True
+    try:
+        ts = datetime.fromisoformat(str(last).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return True
+    interval = SYNC_INTERVALS.get(str(plugin.get("plugin_id") or ""), DEFAULT_SYNC_INTERVAL)
+    return (now - ts) >= interval
+
 
 async def sync_all_plugins() -> None:
     """
@@ -21,8 +51,13 @@ async def sync_all_plugins() -> None:
     if not res.data:
         return
 
+    import time as _time
+
+    now = _time.time()
     for plugin in res.data:
         pid = normalize_plugin_id(plugin.get("plugin_id", ""))
+        if not _sync_due(plugin, now):
+            continue
         alerts: list = []
 
         try:

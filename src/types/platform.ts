@@ -99,6 +99,15 @@ export interface IncidentComment {
   createdAt: string;
 }
 
+export interface IncidentFeedback {
+  id: string;
+  userId?: string;
+  userName?: string;
+  isReal: boolean;
+  comment?: string;
+  createdAt: string;
+}
+
 export interface Incident {
   id: string;
   projectId: string;
@@ -117,11 +126,13 @@ export interface Incident {
   timeline: {
     event: string;
     timestamp: string;
-    type: 'alert' | 'comment' | 'action' | 'status_change';
+    type: 'alert' | 'comment' | 'action' | 'status_change'
+      | 'resolve' | 'ignore' | 'assign' | 'feedback';
   }[];
   ignoredReason?: string;
   feedbackIsReal?: boolean;
   feedbackComment?: string;
+  feedback?: IncidentFeedback[];
   // Security triage / microservice scoping
   serviceId?: string;
   serviceRepositoryUrl?: string;

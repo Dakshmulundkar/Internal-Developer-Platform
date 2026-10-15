@@ -7,7 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from database import supabase
 from dependencies import get_current_user, get_user_project_ids
 from models.rollback import RollbackRequest, RollbackResponse
-from services.rollback_service import execute_rollback, poll_rollback_status
+from services.rollback_service import RollbackError, execute_rollback, poll_rollback_status
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -33,6 +33,8 @@ async def start_rollback(
             target_deployment_id=body.target_deployment_id,
             user_id=str(current_user.id),
         )
+    except RollbackError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except Exception as exc:

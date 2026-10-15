@@ -45,12 +45,18 @@ async def analyze(body: AnalyzeRequest, current_user=Depends(get_current_user)):
             )
 
     context = body.model_dump()
-    result = await ai_service.analyze_incident(context)
+    history = await ai_service.get_history(body.incident_id or "") if has_user_question else []
+    result = await ai_service.analyze_incident(context, history=history)
 
     # Only cache generic (no user_question) analyses to avoid poisoning the
     # cache with question-specific answers
     if body.incident_id and not has_user_question:
         await ai_service.cache(body.incident_id, result)
+
+    # Persist free-form turns so follow-ups resolve against the conversation.
+    if body.incident_id and has_user_question:
+        await ai_service.save_turn(body.incident_id, "user", str(getattr(body, "user_question", "")))
+        await ai_service.save_turn(body.incident_id, "assistant", result.get("explanation", ""))
 
     return AnalysisResponse(**result)
 
@@ -68,3 +74,10 @@ async def get_analysis(incident_id: str, current_user=Depends(get_current_user))
         causes=cached.get("causes", []),
         steps=cached.get("steps", []),
     )
+
+
+@router.get("/chat/{incident_id}", summary="Conversation history for an incident")
+async def get_chat_history(incident_id: str, current_user=Depends(get_current_user)):
+    """Return persisted chat turns (oldest first) so the UI can restore context."""
+    await _assert_incident_access(incident_id, str(current_user.id))
+    return {"turns": await ai_service.get_history(incident_id, limit=50)}

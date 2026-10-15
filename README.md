@@ -4,6 +4,48 @@ A professional, centralized control-plane web platform for software teams to man
 
 > **Version 2.1** — Includes the full audit pass (code splitting, bug fixes, security hardening) and the complete team invite flow (email + in-platform notifications).
 
+> **Deploy (free, $0/mo):** Frontend → Vercel, Backend → Render, DB → Supabase. Full steps in [`DEPLOY.md`](./DEPLOY.md).
+
+---
+
+## Installation (Windows & Linux)
+
+**Requirements:** Node.js 18+ (20 recommended), Python 3.11+, Git. Docker optional (only for §7 container run).
+
+### Windows (PowerShell)
+
+```powershell
+# Node 20 LTS: winget install OpenJS.NodeJS.LTS  (or https://nodejs.org)
+# Python 3.11: winget install Python.Python.3.11  (tick "Add to PATH")
+# Git: winget install Git.Git
+
+git clone https://github.com/Dakshmulundkar/Internal-Developer-Platform.git
+cd Internal-Developer-Platform
+npm install
+npm run setup          # copies .env files + creates backend/venv + installs deps
+# fill backend/.env (SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_KEY, FERNET_KEY)
+npm run dev            # Vite :5174 + backend :8001
+```
+
+### Linux (Ubuntu/Debian)
+
+```bash
+# Node 20 + Git + Python:
+sudo apt update && sudo apt install -y git python3 python3-venv curl
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+node -v  # must be v18+
+
+git clone https://github.com/Dakshmulundkar/Internal-Developer-Platform.git
+cd Internal-Developer-Platform
+npm install
+bash scripts/setup.sh   # same as npm run setup on Linux
+# fill backend/.env (SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_KEY, FERNET_KEY)
+npm run dev             # Vite :5174 + backend :8001
+```
+
+Open **http://localhost:5174**. No `VITE_API_URL` = demo seed-data mode (works offline).
+
 ---
 
 ## Project Title
@@ -43,7 +85,7 @@ This Internal Developer Platform (IDP) acts as a **centralized management and op
                     │ REST + WebSocket
 ┌───────────────────▼─────────────────────────┐
 │  FastAPI Backend (Python 3.11)               │
-│  Deployed: Kubernetes via ArgoCD (GitOps)    │
+│  Deployed: Render Free (K8s + ArgoCD optional, see DEPLOY.md) │
 └────┬──────────────┬──────────────────────────┘
      │              │
      ▼              ▼
@@ -214,22 +256,21 @@ When no backend is configured (`VITE_API_URL` not set), the platform loads reali
 
 ---
 
-## 6. Getting Started (Frontend / Demo Mode)
+## 6. Quick Start (Demo Mode — 3 Commands)
 
-### Prerequisites
-- Node.js v18+
-- npm
+Prerequisites installed above. **No backend, Docker, or database required.**
 
-### Install and Run
+### Install and Run (if you skipped Installation above)
 
 ```bash
 git clone https://github.com/Dakshmulundkar/Internal-Developer-Platform.git
 cd Internal-Developer-Platform
 npm install
+npm run setup          # Windows: scripts/setup.ps1 · Linux: scripts/setup.sh
 npm run dev
 ```
 
-Open `http://localhost:5173/` — the platform loads in demo mode with seed data. No backend required.
+Open **http://localhost:5174** — the platform loads in demo mode with seed data. (The dev server is pinned to 5174 via `strictPort`; if `npm run dev` also starts the backend, it listens on 8001.)
 
 ### Login (Demo Mode)
 - Enter any email and a password of 6+ characters, or click the GitHub / Google OAuth buttons.
@@ -243,44 +284,108 @@ npm run build
 
 ---
 
-## 7. Getting Started (Full Stack with Backend)
+## 7. Full Stack (Recommended: Docker Compose)
 
-### Prerequisites
-- Docker
-- A Kubernetes cluster (local: [kind](https://kind.sigs.k8s.io/) or [minikube](https://minikube.sigs.k8s.io/))
-- ArgoCD installed in the cluster
-- A Supabase project
+Runs everything in containers: backend on `:8000`, frontend (nginx) on `:5173`.
+
+**Prerequisites:** Docker (standalone `docker-compose` and the `docker compose` plugin both work) and a Supabase project.
+
+### Steps
+
+1. **Install and scaffold** (copies `backend/.env.example` → `backend/.env`, creates the Python venv, installs deps):
+```bash
+npm install
+npm run setup
+```
+
+2. **Fill `backend/.env`.** Required keys:
+   - `SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_KEY` — Supabase project → Settings → API
+   - `FERNET_KEY` — encrypts stored plugin credentials (generation command inside `backend/.env.example`)
+
+   Every other key (AI, GitHub OAuth, invite emails, webhook secrets, provider tokens) is optional and documented in `backend/.env.example`.
+
+3. **Run the database schema** — in the Supabase SQL editor, run each file once:
+   - `backend/supabase_schema.sql`
+   - `backend/supabase_schema_additions.sql`
+   - `backend/security_triage_schema.sql`
+   - `backend/incident_feedback_schema.sql`
+   - `backend/autofix_schema.sql`
+
+> **Deploying (free)?** Follow [`DEPLOY.md`](./DEPLOY.md) — Vercel (frontend) + Render Free (backend, `render.yaml` included) + UptimeRobot ping to stop cold starts.
+
+4. **Build and start:**
+```bash
+docker-compose up --build
+```
+
+5. **Open http://localhost:5173** and sign in. Health check: **http://localhost:8000/health** — may report `"status": "degraded"` with a `config_warnings` array naming missing variables. Fill those keys in `backend/.env` and restart.
+
+---
+
+## 7b. Full Stack (Local Dev Without Docker)
+
+1. `npm run setup` — creates `backend/.env` from the example + Python venv.
+2. Fill `backend/.env` — required keys listed in §7 step 2 (full reference: `backend/.env.example`).
+3. In the root `.env` (created by setup), set `VITE_USE_API=true` — enables API mode through the Vite dev-server proxy.
+4. `npm run dev` — starts Vite (`:5174`) and the backend (`:8001`) together.
+5. Open **http://localhost:5174**.
+
+To run the backend on its own (inside the venv created by `npm run setup`):
+
+```bash
+pip install -U -e "./backend[dev]"    # from repo root — installs Python dependencies only
+cd backend
+python -m uvicorn main:app --reload --port 8001
+```
+
+> **Packaging reality:** the backend is a flat layout with **no importable package** — installing it installs *dependencies only*; the app is always run from the `backend/` directory (running it from the repo root fails with `ModuleNotFoundError: No module named 'main'`). Port **8001** is what the Vite dev proxy targets — running on 8000 breaks local dev.
+
+---
+
+## 7c. Advanced — Kubernetes + ArgoCD (GitOps)
+
+**Prerequisites:** Docker, a Kubernetes cluster (local: [kind](https://kind.sigs.k8s.io/) or [minikube](https://minikube.sigs.k8s.io/)), ArgoCD installed in the cluster, and the 3 SQL files from §7 step 3 already run against Supabase.
 
 ### Backend Environment Variables
 
-Copy `.env.example` to `backend/.env` and fill in:
+If `npm run setup` has not run yet, copy **`backend/.env.example`** to `backend/.env` and fill in (never commit `.env`):
 
 ```
+# REQUIRED — /health reports "degraded" while these are empty
 SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_KEY=eyJ...
-OPENAI_API_KEY=sk-...          # or GROQ_API_KEY for free tier
-VERCEL_WEBHOOK_SECRET=whsec_...
-NETLIFY_WEBHOOK_SECRET=whsec_...
-CORS_ORIGINS=http://localhost:5173,https://your-frontend.vercel.app
-# Team invite email (optional — falls back to console log)
+SUPABASE_SERVICE_KEY=eyJ...
+FERNET_KEY=...                     # encrypts plugin credentials
+# CORS — must include your frontend origin
+CORS_ORIGINS=http://localhost:5174,http://localhost:5173,https://your-frontend.vercel.app
+#                ^dev            ^Docker frontend     ^production
+# AI analysis (optional — set at least one)
+GROQ_API_KEY=...                   # primary (free tier)
+OPENAI_API_KEY=sk-...              # fallback
+# GitHub OAuth (optional)
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
+# Public URLs for OAuth redirects and invite accept/decline links (optional)
+APP_FRONTEND_URL=http://localhost:5174   # Docker frontend: http://localhost:5173
+APP_BACKEND_URL=http://localhost:8001    # Docker backend: http://localhost:8000
+# Team invite emails via Resend (optional — falls back to console log)
 RESEND_API_KEY=re_...
 FROM_EMAIL=noreply@yourdomain.com
 FROM_NAME=Aether IDP
-# Public URLs for invite accept/decline links
-APP_FRONTEND_URL=https://your-frontend.vercel.app
-APP_BACKEND_URL=https://your-api.yourdomain.com
+# Webhook signature verification (optional)
+VERCEL_WEBHOOK_SECRET=whsec_...
+NETLIFY_WEBHOOK_SECRET=whsec_...
 ```
 
-### Run Backend Locally
+> The backend reads `backend/.env` directly. The **root** `.env` is for the *frontend* (Vite) only.
+
+### Run the Backend Locally
 
 ```bash
 cd backend
-python -m venv venv && .\venv\Scripts\activate   # Windows
-pip install -e .
-uvicorn main:app --reload
+python -m uvicorn main:app --reload --port 8001
 ```
-
-> **Database setup** — run `backend/supabase_schema_additions.sql` once in the Supabase SQL editor to create all Phase 2 + Phase 2.1 tables: automation rules, scheduled tasks, sharing, comments, activity, team_members invite columns, and the new `notifications` table.
+Run inside the venv created by `npm run setup`; install deps first with `pip install -U -e "./backend[dev]"` from the repo root (dependencies only — see §7b). Port **8001** is required for the Vite dev proxy.
 
 ### Deploy Backend via ArgoCD
 
@@ -317,7 +422,71 @@ VITE_API_URL=https://api.your-cluster.com
 VITE_WS_URL=wss://api.your-cluster.com
 ```
 
-When `VITE_API_URL` is not set, the frontend automatically falls back to demo/seed data mode.
+When `VITE_API_URL` and `VITE_USE_API` are both unset, the frontend automatically falls back to demo/seed data mode.
+
+---
+
+## 7d. How to Update
+
+```bash
+npm run update
+```
+
+Pulls the latest code (`git pull --ff-only`); when the Docker daemon is reachable it rebuilds/restarts the Compose stack and polls backend `/health`, otherwise it falls back to refreshing dependencies (`npm ci` + backend pip install) and asks you to restart `npm run dev`. Idempotent — safe to run repeatedly; ends with a clear `UPDATED-HEALTHY` / `UPDATED-HEALTH-DEGRADED` / `FAILED` status line.
+
+For diagnostics (Node version, ports 5174 dev / 8001 backend / 5173 Docker, `backend/.env` keys, venv, backend `/health` ok-or-degraded with warnings), run **`npm run doctor`** — exits non-zero if any check fails.
+
+---
+
+## 7e. Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| Port 5174 already in use | Another Vite instance or Docker Desktop is holding the port (the dev server uses `strictPort`). Close the other process or stop Docker Desktop. |
+| "Docker daemon not running" | The Compose path (§7) needs Docker running. Use local dev instead (§7b). |
+| Seeing demo data with the backend running | Frontend is in demo mode — `VITE_USE_API` / `VITE_API_URL` unset in `.env`, or the backend is down. Run `npm run doctor`. |
+| CORS error in the browser | `CORS_ORIGINS` in `backend/.env` must include your frontend origin (`http://localhost:5174` for dev). |
+| Supabase "relation does not exist" errors | Run the 3 SQL files in the Supabase SQL editor (§7 step 3). |
+| `/health` reports `degraded` | Its `config_warnings` list the missing env keys — fill them in `backend/.env` and restart. |
+
+---
+
+## 7f. Repo Auto-Fix (beta)
+
+Connect a classic GitHub PAT and the platform can scan a linked repository,
+generate a missing Dockerfile, auto-fix safe lint errors, push everything to a
+**new `aether/autofix-*` branch**, and open a pull request. Your default branch
+is never touched.
+
+**Setup (run this SQL file once in the Supabase SQL editor, after the files in §7 step 3):**
+- `backend/autofix_schema.sql`
+
+**Use:**
+1. **Settings → GitHub Auto-Fix** — paste a classic PAT with the `repo` scope
+   ([create one here](https://github.com/settings/tokens)). The token is
+   encrypted at rest; the UI shows only `@login (…last4)`.
+2. Open a project → **Infrastructure tab → Repo Health → Scan repository**.
+3. Review findings → **Apply fixes & open PR** → review the PR on GitHub.
+
+**What Apply does in one run:** generates a missing Dockerfile (template, never
+overwrites) → runs your linters' `--fix` → optionally fixes *small* problems
+with OpenAI (only files with ≤5 errors and ≤30 KB, max 5 per run; each fix is
+re-linted and kept only if errors drop) → pushes to a new `aether/autofix-*`
+branch → opens a PR. Problems too large to automate become **triage tickets**
+on the Incidents page instead (they land in the same incidents table as every
+other ticket, with the likely cause attached).
+AI fixes need `OPENAI_API_KEY` in `backend/.env`; without it, mechanical fixes
+and tickets still work.
+
+**Honest limitations:**
+- **Trusted repos only:** applying runs the repo's own tooling (`npm ci`,
+  ESLint plugins) on the server — only auto-fix repos you trust.
+- **200 MB cap:** larger repos can scan but not apply.
+- **JS fixes need a lockfile** (`package-lock.json` etc.); **ruff fixes need a
+  ruff config** — otherwise those checks report as skipped with a reason.
+- **10 applies / 20 scans per user per day.**
+- Revoke anytime: Settings → GitHub Auto-Fix → Disconnect (also revoke the
+  token at github.com/settings/tokens).
 
 ---
 

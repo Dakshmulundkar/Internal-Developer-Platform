@@ -7,6 +7,7 @@ import {
   Moon, Palette, KeyRound, Eye, Lock, Save, Sun, Monitor
 } from 'lucide-react';
 import type { ProjectRole } from '../types/platform';
+import { GitHubAutoFixCard } from '../components/settings/GitHubAutoFixCard';
 
 type CardId = 'providers' | 'plugins' | 'notifications' | 'security-webhook' | 'user-profile' | 'team' | 'appearance' | 'account' | 'security' | 'credentials' | 'preferences';
 
@@ -106,7 +107,7 @@ export const Settings: React.FC = () => {
       id: 'providers',
       icon: <Github size={20} className="text-zinc-300" />,
       title: 'Deployment Providers',
-      desc: 'Configure GitHub username and connect Vercel or Netlify for deployment status tracking.',
+      desc: 'Configure GitHub username, personal access token, and connect Vercel or Netlify for deployment status tracking.',
     },
     {
       id: 'plugins',
@@ -193,6 +194,12 @@ export const Settings: React.FC = () => {
                   placeholder="github-username"
                   className="w-full bg-black/30 border border-white/[0.06] text-zinc-100 placeholder-zinc-600 focus:border-white/20 focus:outline-none rounded-md py-2.5 pl-9 pr-3 text-xs font-mono" />
               </div>
+            </div>
+            <div className="pt-2 mt-2 border-t border-white/[0.06]">
+              <div className="text-[11px] font-semibold text-zinc-400 mb-3 mt-3 uppercase tracking-wider">
+                GitHub Personal Access Token <span className="normal-case font-normal text-zinc-600">(for Repo Auto-Fix)</span>
+              </div>
+              <GitHubAutoFixCard />
             </div>
             {[
               { label: 'Vercel API Integration', desc: 'Query deployment statuses and redirect routing rules.', checked: connectVcl, onChange: setConnectVcl },

@@ -173,8 +173,13 @@ def _generate_smart_analysis(context: dict) -> dict:
     }
 
 
-async def analyze_incident(context: dict) -> dict:
-    """Call Groq (with model fallbacks) or OpenAI, falling back seamlessly to smart analysis."""
+async def analyze_incident(context: dict, history: list | None = None) -> dict:
+    """Call Groq (with model fallbacks) or OpenAI, falling back seamlessly to smart analysis.
+
+    `history` is a list of {"role": "user"|"assistant", "content": str} turns
+    (newest last, already capped by the caller) threaded after the incident
+    context so follow-ups resolve against the conversation, not from zero.
+    """
     user_q = context.get("user_question") or ""
     user_msg = json.dumps(context)
     # Put the question front-and-centre so the LLM focuses on it
@@ -184,6 +189,11 @@ async def analyze_incident(context: dict) -> dict:
         {"role": "system", "content": _SYSTEM_PROMPT},
         {"role": "user", "content": user_msg},
     ]
+    for turn in history or []:
+        role = turn.get("role") if isinstance(turn, dict) else None
+        content = turn.get("content") if isinstance(turn, dict) else None
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": str(content)[:2000]})
 
     raw: Optional[str] = None
 
@@ -341,7 +351,7 @@ async def get_cached(incident_id: str) -> dict | None:
 
 async def cache(incident_id: str, result: dict) -> None:
     """Upsert an analysis result into ai_analyses.
-    
+
     Skipped for non-UUID IDs (seed/demo data).
     """
     if not is_valid_uuid(incident_id):
@@ -356,3 +366,48 @@ async def cache(incident_id: str, result: dict) -> None:
         }, on_conflict="incident_id").execute()
     except Exception as exc:
         logger.warning("ai_service.cache failed: %s", exc)
+
+
+HISTORY_TURNS = 10
+HISTORY_CHARS = 1000
+
+
+async def get_history(incident_id: str, limit: int = HISTORY_TURNS) -> list:
+    """Return recent chat turns for an incident (oldest first).
+
+    Returns [] when the table does not exist yet or the id is not a UUID —
+    memory is best-effort; chat works without it.
+    """
+    if not is_valid_uuid(incident_id):
+        return []
+    try:
+        res = (
+            supabase.table("ai_chat_messages")
+            .select("role,content")
+            .eq("incident_id", incident_id)
+            .order("created_at", desc=False)
+            .limit(limit)
+            .execute()
+        )
+        turns = []
+        for row in res.data or []:
+            if row.get("role") in ("user", "assistant") and row.get("content"):
+                turns.append({"role": row["role"], "content": str(row["content"])[:HISTORY_CHARS]})
+        return turns[-limit:]
+    except Exception as exc:
+        logger.debug("ai_service.get_history skipped: %s", exc)
+        return []
+
+
+async def save_turn(incident_id: str, role: str, content: str) -> None:
+    """Persist one chat turn. Best-effort — never breaks the chat path."""
+    if not is_valid_uuid(incident_id) or role not in ("user", "assistant") or not content:
+        return
+    try:
+        supabase.table("ai_chat_messages").insert({
+            "incident_id": incident_id,
+            "role": role,
+            "content": str(content)[:4000],
+        }).execute()
+    except Exception as exc:
+        logger.debug("ai_service.save_turn skipped: %s", exc)

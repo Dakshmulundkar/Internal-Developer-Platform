@@ -67,3 +67,4 @@ class IncidentResponse(BaseModel):
     security_metadata: Optional[Dict[str, Any]] = None
     comments: List[Any] = []
     timeline: List[Any] = []
+    feedback: List[Any] = []

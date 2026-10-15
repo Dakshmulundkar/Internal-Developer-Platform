@@ -252,6 +252,11 @@ const incidents = {
       body: JSON.stringify({ is_real: isReal, comment }),
     }),
 
+  remediation: (id: string) =>
+    apiFetch<{ steps: { title: string; description: string }[]; cached: boolean; generic: boolean }>(`/incidents/${id}/remediation`, {
+      method: 'POST',
+    }),
+
   update: (id: string, data: Record<string, unknown>) =>
     apiFetch<Record<string, unknown>>(`/incidents/${id}`, {
       method: 'PATCH',
@@ -302,6 +307,9 @@ const ai = {
       causes: string[];
       steps: Array<{ title: string; description: string }>;
     }>(`/ai/analyze/${incidentId}`),
+
+  chatHistory: (incidentId: string) =>
+    apiFetch<{ turns: { role: 'user' | 'assistant'; content: string }[] }>(`/ai/chat/${incidentId}`),
 };
 
 const monitoring = {
@@ -310,6 +318,9 @@ const monitoring = {
 
   sync: () =>
     apiFetch<{ status: string }>('/monitoring/sync', { method: 'POST' }),
+
+  sentryIssues: () =>
+    apiFetch<Array<Record<string, unknown>>>('/monitoring/sentry/issues'),
 
   probe: (projectId: string, customUrl?: string) =>
     apiFetch<Record<string, unknown>>(`/monitoring/probe/${projectId}${customUrl ? `?custom_url=${encodeURIComponent(customUrl)}` : ''}`, {
@@ -485,6 +496,22 @@ const settingsApi = {
       method: 'POST',
       body: JSON.stringify(prefs),
     }),
+
+  githubTokenStatus: () =>
+    apiFetch<{ connected: boolean; github_login?: string; last4?: string; scopes?: string; created_at?: string }>(
+      '/settings/github/token/status',
+    ),
+
+  saveGithubToken: (token: string) =>
+    apiFetch<{ github_login: string; last4: string; scopes: string }>('/settings/github/token', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+
+  deleteGithubToken: () =>
+    apiFetch<{ connected: boolean }>('/settings/github/token', {
+      method: 'DELETE',
+    }),
 };
 
 const upload = {
@@ -633,6 +660,78 @@ const security = {
   },
 };
 
+export interface AutofixFileDetail {
+  file: string;
+  errors: number;
+  fixable_count?: number;
+  automation: 'ai' | 'triage' | 'lint' | 'none';
+  reason?: string;
+  cause?: string;
+}
+
+export interface AutofixFinding {
+  type: string;
+  fixable: boolean;
+  detail: string;
+  tool?: string;
+  automation?: string;
+  files?: AutofixFileDetail[];
+}
+
+export interface AutofixTicket {
+  id: string;
+  title: string;
+}
+
+export interface AutofixScanResult {
+  repo: string;
+  stack: string;
+  clone_mb: number;
+  findings: AutofixFinding[];
+  apply_enabled: boolean;
+  apply_blocked_reason: string | null;
+  ai_available: boolean;
+}
+
+export interface AutofixApplyResult {
+  status: 'pr_opened' | 'no_changes';
+  message?: string;
+  branch?: string;
+  pr_url?: string;
+  files?: string[];
+  tickets?: AutofixTicket[];
+  ai_fixed?: string[];
+  ai_notes?: string[];
+}
+
+export interface AutofixRun {
+  id: string;
+  status: string;
+  branch: string | null;
+  pr_url: string | null;
+  findings: AutofixFinding[] | null;
+  created_at: string;
+}
+
+const autofixApi = {
+  scan: (projectId: string) =>
+    apiFetch<AutofixScanResult>('/repo/autofix/scan', {
+      method: 'POST',
+      body: JSON.stringify({ project_id: projectId }),
+    }),
+
+  apply: (projectId: string, useAi: boolean) =>
+    apiFetch<AutofixApplyResult>('/repo/autofix/apply', {
+      method: 'POST',
+      body: JSON.stringify({ project_id: projectId, use_ai: useAi }),
+    }),
+
+  runs: (projectId: string) =>
+    apiFetch<{ runs: AutofixRun[] }>(
+      `/repo/autofix/runs?project_id=${encodeURIComponent(projectId)}`,
+    ),
+};
+
 export const api = {
   auth,
   projects,
@@ -648,6 +747,7 @@ export const api = {
   team,
   search: searchApi,
   settings: settingsApi,
+  autofix: autofixApi,
   upload,
   activities,
   automation,

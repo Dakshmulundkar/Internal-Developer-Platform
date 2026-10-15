@@ -4,11 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "test": "vitest run",    "dev": "concurrently --names \"vite,api\" --prefix-colors \"cyan,magenta\" \"vite\" \"npm run backend\"",
+    "test": "vitest run",
+    "dev": "concurrently --names \"vite,api\" --prefix-colors \"cyan,magenta\" \"vite\" \"npm run backend\"",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "backend": "cd backend && venv\\Scripts\\uvicorn main:app --reload --port 8001",
-    "frontend": "vite"
+    "backend": "node scripts/backend-dev.mjs",
+    "frontend": "vite",
+    "setup": "powershell -ExecutionPolicy Bypass -File scripts/setup.ps1",
+    "update": "powershell -ExecutionPolicy Bypass -File scripts/update.ps1",
+    "doctor": "node scripts/doctor.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.102.8",

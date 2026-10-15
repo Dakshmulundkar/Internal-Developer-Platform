@@ -13,6 +13,39 @@ from validators import is_valid_uuid
 logger = logging.getLogger(__name__)
 
 
+class RollbackError(ValueError):
+    """Caller-facing rollback failure (mapped to HTTP 400 by the router)."""
+
+
+_LEGACY_PROVIDER_IDS = {
+    "vercel": ("plugin-vercel", "vercel"),
+    "netlify": ("plugin-netlify", "netlify"),
+}
+
+
+def _resolve_provider_token(provider: str, user_id: str) -> str:
+    """Return a usable (decrypted) provider token, or '' when none is stored."""
+    from services.plugins import crypto
+
+    ids = _LEGACY_PROVIDER_IDS.get(provider or "", ())
+    token = ""
+    if provider == "vercel":
+        token = getattr(settings, "VERCEL_API_TOKEN", "") or ""
+    elif provider == "netlify":
+        token = getattr(settings, "NETLIFY_API_TOKEN", "") or ""
+    if not token and ids:
+        try:
+            pi_res = supabase.table("plugin_installations").select(
+                "api_key_encrypted").eq("installed_by", user_id).in_("plugin_id", list(ids)).limit(1).execute()
+            if pi_res.data:
+                token = crypto.decrypt_key(pi_res.data[0].get("api_key_encrypted")) or ""
+        except Exception as exc:
+            logger.debug("Provider token lookup failed: %s", exc)
+    if not token or "••••" in token:
+        return ""
+    return token
+
+
 async def execute_rollback(project_id: str, target_deployment_id: str, user_id: str) -> str:
     """Trigger a rollback via the provider API and insert a rollback_operations row.
 
@@ -71,52 +104,58 @@ async def execute_rollback(project_id: str, target_deployment_id: str, user_id: 
     provider_deployment_id = deployment.get("external_event_id") or deployment.get("version") or target_deployment_id
     target_version = deployment.get("version") or provider_deployment_id
 
-    # Retrieve provider token (from settings or plugin_installations)
-    provider = project.get("provider")
-    token = ""
-    if provider == "vercel":
-        token = getattr(settings, "VERCEL_API_TOKEN", "") or ""
-        if not token:
-            pi_res = supabase.table("plugin_installations").select("api_key_encrypted").eq("installed_by", user_id).eq("plugin_id", "vercel").execute()
-            if pi_res.data and pi_res.data[0].get("api_key_encrypted"):
-                token = pi_res.data[0]["api_key_encrypted"]
-    elif provider == "netlify":
-        token = getattr(settings, "NETLIFY_API_TOKEN", "") or ""
-        if not token:
-            pi_res = supabase.table("plugin_installations").select("api_key_encrypted").eq("installed_by", user_id).eq("plugin_id", "netlify").execute()
-            if pi_res.data and pi_res.data[0].get("api_key_encrypted"):
-                token = pi_res.data[0]["api_key_encrypted"]
+    # Retrieve provider token (settings override, else the user's stored plugin key).
+    # No token → fail closed. A rollback that cannot reach the provider must
+    # never report success.
+    provider = project.get("provider") or ""
+    token = _resolve_provider_token(provider, user_id)
+    if not token:
+        raise RollbackError(
+            f"No {provider or 'deployment provider'} API token configured. "
+            "Connect it in Integrations, then retry the rollback."
+        )
+
+    # Idempotency: one active rollback per project at a time.
+    try:
+        active = supabase.table("rollback_operations").select("id").eq(
+            "project_id", project_id).in_("status", ["queued", "in_progress"]).limit(1).execute()
+        if active.data:
+            raise RollbackError("A rollback for this project is already in progress.")
+    except RollbackError:
+        raise
+    except Exception as exc:
+        logger.debug("Rollback idempotency check skipped: %s", exc)
 
     provider_api_error = None
-    if token:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                if provider == "vercel" and project.get("vercel_project_id"):
-                    resp = await client.post(
-                        f"https://api.vercel.com/v9/projects/{project['vercel_project_id']}/aliases",
-                        headers={"Authorization": f"Bearer {token}"},
-                        json={"deployment": provider_deployment_id},
-                    )
-                    if resp.status_code >= 400:
-                        provider_api_error = f"Vercel API error ({resp.status_code}): {resp.text}"
-                        logger.warning(provider_api_error)
-                elif provider == "netlify" and project.get("netlify_site_id"):
-                    resp = await client.post(
-                        f"https://api.netlify.com/api/v1/sites/{project['netlify_site_id']}/deploys/{provider_deployment_id}/restore",
-                        headers={"Authorization": f"Bearer {token}"},
-                    )
-                    if resp.status_code >= 400:
-                        provider_api_error = f"Netlify API error ({resp.status_code}): {resp.text}"
-                        logger.warning(provider_api_error)
-            except Exception as exc:
-                provider_api_error = f"Provider request failed: {exc}"
-                logger.error(provider_api_error)
-    else:
-        logger.info("No provider API token found for %s; proceeding in simulated/standalone mode", provider)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            if provider == "vercel" and project.get("vercel_project_id"):
+                resp = await client.post(
+                    f"https://api.vercel.com/v9/projects/{project['vercel_project_id']}/aliases",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={"deployment": provider_deployment_id},
+                )
+                if resp.status_code >= 400:
+                    raise RollbackError(f"Vercel API error ({resp.status_code}): {resp.text[:200]}")
+            elif provider == "netlify" and project.get("netlify_site_id"):
+                resp = await client.post(
+                    f"https://api.netlify.com/api/v1/sites/{project['netlify_site_id']}/deploys/{provider_deployment_id}/restore",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                if resp.status_code >= 400:
+                    raise RollbackError(f"Netlify API error ({resp.status_code}): {resp.text[:200]}")
+            else:
+                raise RollbackError(
+                    f"Project has no {provider or 'provider'} deployment target configured "
+                    "(vercel_project_id / netlify_site_id). Set it in project settings first."
+                )
+        except RollbackError:
+            raise
+        except Exception as exc:
+            raise RollbackError(f"Provider request failed: {exc}") from exc
 
-    initial_logs = [{"step": f"Rollback to deployment {provider_deployment_id} ({target_version}) initiated", "timestamp": datetime.now(timezone.utc).isoformat()}]
-    if provider_api_error:
-        initial_logs.append({"step": f"Provider notice: {provider_api_error}", "timestamp": datetime.now(timezone.utc).isoformat()})
+    initial_logs = [{"step": f"Rollback to deployment {provider_deployment_id} ({target_version}) initiated", "timestamp": datetime.now(timezone.utc).isoformat()},
+                    {"step": "Provider accepted the redirect request", "timestamp": datetime.now(timezone.utc).isoformat()}]
 
     op_res = supabase.table("rollback_operations").insert({
         "project_id": project_id,
@@ -151,8 +190,8 @@ async def poll_rollback_status(rollback_id: str) -> None:
     """Background task: poll the provider API for real deployment status.
 
     Checks Vercel/Netlify API for the actual deployment state instead of
-    hardcoding success. Falls back to success after timeout if no provider
-    token is available.
+    hardcoding success. If the provider state can never be confirmed, the
+    operation is marked failed — never assumed successful.
     """
     for attempt in range(10):
         await asyncio.sleep(5)
@@ -185,7 +224,9 @@ async def poll_rollback_status(rollback_id: str) -> None:
                             if not token:
                                 pi_res = supabase.table("plugin_installations").select("api_key_encrypted").eq("plugin_id", "vercel").eq("installed_by", str(project.get("owner_id") or "")).limit(1).execute()
                                 if pi_res.data:
-                                    token = pi_res.data[0].get("api_key_encrypted") or ""
+                                    from services.plugins import crypto as _crypto
+
+                                    token = _crypto.decrypt_key(pi_res.data[0].get("api_key_encrypted")) or ""
                             if token and "••••" not in token:
                                 async with httpx.AsyncClient(timeout=15.0) as client:
                                     resp = await client.get(
@@ -212,7 +253,9 @@ async def poll_rollback_status(rollback_id: str) -> None:
                             if not token:
                                 pi_res = supabase.table("plugin_installations").select("api_key_encrypted").eq("plugin_id", "netlify").eq("installed_by", str(project.get("owner_id") or "")).limit(1).execute()
                                 if pi_res.data:
-                                    token = pi_res.data[0].get("api_key_encrypted") or ""
+                                    from services.plugins import crypto as _crypto
+
+                                    token = _crypto.decrypt_key(pi_res.data[0].get("api_key_encrypted")) or ""
                             if token and "••••" not in token:
                                 async with httpx.AsyncClient(timeout=15.0) as client:
                                     resp = await client.get(
@@ -242,9 +285,10 @@ async def poll_rollback_status(rollback_id: str) -> None:
                 elif real_status in ("QUEUED", "BUILDING", "prepared", "building"):
                     new_status = "in_progress"
             elif attempt >= 4:
-                # No provider token available — after 20s assume success (best effort)
-                new_status = "success"
-                logs.append({"step": "No provider API access — assuming success after timeout", "timestamp": datetime.now(timezone.utc).isoformat()})
+                # Provider state never confirmed — mark failed, never assume success.
+                # A rollback that cannot be verified must not report success.
+                new_status = "failed"
+                logs.append({"step": "Provider state could not be confirmed after 20s — marking failed. Check the provider dashboard.", "timestamp": datetime.now(timezone.utc).isoformat()})
 
             update_data: dict = {"status": new_status, "audit_logs": logs}
             if new_status in ("success", "failed"):

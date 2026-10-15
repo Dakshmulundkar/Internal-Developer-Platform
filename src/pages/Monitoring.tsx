@@ -4,7 +4,7 @@ import { isApiAvailable, api } from '../services/api';
 import {
   Activity, Search, AlertTriangle, CheckCircle, Clock,
   ExternalLink, Bug, Filter, ChevronRight, ShieldAlert, Code,
-  Zap, Play, RefreshCw
+  Zap, Play, RefreshCw, Loader
 } from 'lucide-react';
 import type { AlertSource, AlertSeverity, AlertStatus, SentryIssue } from '../types/platform';
 
@@ -82,6 +82,8 @@ export const Monitoring: React.FC = () => {
   const [testMessageType, setTestMessageType] = useState<'success' | 'error' | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [liveAlerts, setLiveAlerts] = useState<typeof contextAlerts | null>(null);
+  const [liveSentryIssues, setLiveSentryIssues] = useState<SentryIssue[] | null>(null);
+  const [sentryLoading, setSentryLoading] = useState(false);
 
   // Auto-detect target test URL from Vercel plugin or projects
   const vercelPlugin = pluginInstallations.find(p => p.pluginId === 'vercel');
@@ -183,9 +185,35 @@ export const Monitoring: React.FC = () => {
 
   const monitoringAlerts = liveAlerts ?? contextAlerts;
 
-  // Sentry issues arrive through the synced alerts stream; the dedicated
-  // issues endpoint is not yet wired, so this stays empty instead of faked.
-  const sentryIssues: SentryIssue[] = [];
+  // Live Sentry issues from connected Sentry installations (empty until
+  // fetched; the tab's empty state covers the no-plugin case honestly).
+  useEffect(() => {
+    if (!isApiAvailable()) return;
+    let cancelled = false;
+    setSentryLoading(true);
+    api.monitoring.sentryIssues()
+      .then(data => {
+        if (cancelled || !Array.isArray(data)) return;
+        setLiveSentryIssues(data.map((r, idx) => ({
+          id: String(r.id ?? `sentry-${idx}`),
+          title: String(r.title ?? 'Sentry Issue'),
+          culprit: String(r.culprit ?? ''),
+          level: (['fatal', 'error', 'warning', 'info'] as const).includes(r.level as SentryIssue['level'])
+            ? r.level as SentryIssue['level'] : 'error' as const,
+          status: (['unresolved', 'resolved', 'ignored'] as const).includes(r.status as SentryIssue['status'])
+            ? r.status as SentryIssue['status'] : 'unresolved' as const,
+          count: Number(r.count) || 0,
+          firstSeen: String(r.firstSeen ?? ''),
+          lastSeen: String(r.lastSeen ?? ''),
+          release: String(r.release ?? ''),
+        })));
+      })
+      .catch(() => { /* empty state covers failure */ })
+      .finally(() => { if (!cancelled) setSentryLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const sentryIssues: SentryIssue[] = liveSentryIssues ?? [];
 
   const firing   = monitoringAlerts.filter(a => a.status === 'firing').length;
   const resolved = monitoringAlerts.filter(a => a.status === 'resolved').length;
@@ -596,7 +624,12 @@ export const Monitoring: React.FC = () => {
             </span>
           </div>
 
-          {sentryIssues.length === 0 ? (
+          {sentryLoading ? (
+            <div className="relative overflow-hidden bg-white/[0.03] border border-white/[0.06] rounded-xl p-12 text-center text-zinc-500">
+              <Loader size={20} className="mx-auto mb-3 text-zinc-600 animate-spin" />
+              <p className="text-xs text-zinc-400">Loading Sentry issues…</p>
+            </div>
+          ) : sentryIssues.length === 0 ? (
             <div className="relative overflow-hidden bg-white/[0.03] border border-white/[0.06] rounded-xl p-12 text-center text-zinc-500">
               <Bug size={28} className="mx-auto mb-3 text-zinc-600" />
               <p className="text-xs font-semibold text-zinc-300">No Sentry Issues Reported</p>

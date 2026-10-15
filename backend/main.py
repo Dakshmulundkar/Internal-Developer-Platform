@@ -18,7 +18,7 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from config import settings
+from config import collect_config_warnings, settings
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(level=settings.LOG_LEVEL.upper())
@@ -34,6 +34,11 @@ for _noisy_logger in ("httpx", "httpcore", "urllib3"):
     logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
+
+# ── Config warnings (soft fail-fast — collected once, never crashes) ──────────
+CONFIG_WARNINGS: list[str] = collect_config_warnings()
+for _cw in CONFIG_WARNINGS:
+    logger.warning("Config: %s", _cw)
 
 
 @asynccontextmanager
@@ -113,6 +118,8 @@ from routers import rollback  # noqa: E402
 from routers import search  # noqa: E402
 from routers import security  # noqa: E402
 from routers import settings as settings_router  # noqa: E402
+from routers import github_token  # noqa: E402
+from routers import autofix  # noqa: E402
 from routers import team  # noqa: E402
 from routers import upload  # noqa: E402
 from routers import activities  # noqa: E402
@@ -139,6 +146,8 @@ app.include_router(comments.router, prefix="/comments", tags=["comments"])
 app.include_router(team.router, prefix="/team", tags=["team"])
 app.include_router(search.router, prefix="/search", tags=["search"])
 app.include_router(settings_router.router, prefix="/settings", tags=["settings"])
+app.include_router(github_token.router, prefix="/settings", tags=["settings-github"])
+app.include_router(autofix.router, prefix="/repo/autofix", tags=["autofix"])
 app.include_router(upload.router, prefix="/upload", tags=["upload"])
 app.include_router(activities.router, prefix="/activities", tags=["activities"])
 app.include_router(automation.router, prefix="/automation", tags=["automation"])
@@ -158,8 +167,13 @@ app.add_api_route("/api/events", monitoring.ingest_event, methods=["POST"], tags
 # ── Health ────────────────────────────────────────────────────────────────────
 @app.get("/health", tags=["health"])
 async def health_check() -> dict:
-    """Liveness / readiness probe — returns 200 when the process is up."""
-    return {"status": "ok"}
+    """Liveness / readiness probe — 200 when the process is up.
+
+    ``status`` is ``degraded`` (still HTTP 200) when required config is missing;
+    ``config_warnings`` names each problem without ever leaking secret values.
+    """
+    warnings = collect_config_warnings()
+    return {"status": "degraded" if warnings else "ok", "config_warnings": warnings}
 
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ from models.incident import (
     IncidentUpdate,
 )
 from services import audit_service, notification_service
+from services import ai_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -23,6 +24,23 @@ router = APIRouter()
 def _user_project_ids(user_id: str) -> list[str]:
     """Return all project ids accessible to user_id (owned or team member)."""
     return get_user_project_ids(user_id)
+
+
+def _actor(user) -> str:
+    """Human-readable actor for timeline events (embed in text, no schema change)."""
+    return getattr(user, "email", None) or str(getattr(user, "id", "unknown"))
+
+
+def _timeline(incident_id: str, event: str, event_type: str) -> None:
+    """Append a timeline row. Failures are non-fatal (mirrors _security_audit)."""
+    try:
+        supabase.table("incident_timeline").insert({
+            "incident_id": incident_id,
+            "event": event,
+            "type": event_type,
+        }).execute()
+    except Exception as exc:
+        logger.warning("timeline insert failed: %s", exc)
 
 
 def _security_audit(
@@ -100,6 +118,15 @@ async def get_incident(incident_id: str, current_user=Depends(get_current_user))
     timeline_res = supabase.table("incident_timeline").select("*").eq("incident_id", incident_id).execute()
     incident["timeline"] = timeline_res.data or []
 
+    # Feedback history (newest first). Missing table = pre-migration graceful skip.
+    try:
+        fb_res = supabase.table("incident_feedback").select("*").eq(
+            "incident_id", incident_id).order("created_at", desc=True).execute()
+        incident["feedback"] = fb_res.data or []
+    except Exception as exc:
+        logger.warning("incident_feedback read skipped (run incident_feedback_schema.sql): %s", exc)
+        incident["feedback"] = []
+
     return incident
 
 
@@ -149,11 +176,7 @@ async def resolve_incident(incident_id: str, current_user=Depends(get_current_us
 
     now = datetime.now(timezone.utc).isoformat()
     res = supabase.table("incidents").update({"status": "resolved", "resolved_at": now}).eq("id", incident_id).execute()
-    supabase.table("incident_timeline").insert({
-        "incident_id": incident_id,
-        "event": "Incident resolved",
-        "type": "resolve",
-    }).execute()
+    _timeline(incident_id, f"Incident resolved by {_actor(current_user)}", "resolve")
 
     # Security incidents keep an immutable audit trail
     if inc.data.get("source") == "security_triage":
@@ -209,6 +232,11 @@ async def ignore_incident(
 
     ignored_reason = body.get("ignored_reason", "")
     res = supabase.table("incidents").update({"status": "resolved", "ignored_reason": ignored_reason}).eq("id", incident_id).execute()
+    _timeline(
+        incident_id,
+        f"Ignored by {_actor(current_user)}: {ignored_reason or 'no reason given'}",
+        "ignore",
+    )
 
     # Security incidents keep an immutable audit trail
     if inc.data.get("source") == "security_triage":
@@ -256,11 +284,11 @@ async def add_comment(
         "content": body.content,
     }
     comment_res = supabase.table("incident_comments").insert(comment_row).execute()
-    supabase.table("incident_timeline").insert({
-        "incident_id": incident_id,
-        "event": f"Comment added: {body.content[:80]}",
-        "type": "comment",
-    }).execute()
+    _timeline(
+        incident_id,
+        f"Comment added by {user_name}: {body.content[:60]}",
+        "comment",
+    )
     return comment_res.data[0] if comment_res.data else {"success": True}
 
 
@@ -270,17 +298,40 @@ async def submit_feedback(
     body: FeedbackUpdate,
     current_user=Depends(get_current_user),
 ):
-    """Submit AI feedback for an incident."""
+    """Submit feedback for an incident — history row + latest-column mirror."""
     project_ids = _user_project_ids(str(current_user.id))
     inc = supabase.table("incidents").select("project_id").eq("id", incident_id).single().execute()
     if not inc.data or inc.data.get("project_id") not in project_ids:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incident not found")
 
+    # Keep legacy "latest" columns in sync (old readers keep working).
     updates: dict = {"feedback_is_real": body.is_real}
     if body.comment is not None:
         updates["feedback_comment"] = body.comment
     supabase.table("incidents").update(updates).eq("id", incident_id).execute()
-    return {"success": True}
+
+    # History row so "who said what" survives; missing table = pre-migration fallback.
+    row: dict = {
+        "incident_id": incident_id,
+        "user_id": str(current_user.id),
+        "user_name": getattr(current_user, "email", "") or str(current_user.id),
+        "is_real": body.is_real,
+        "comment": body.comment or "",
+    }
+    try:
+        fb_res = supabase.table("incident_feedback").insert(row).execute()
+        if fb_res.data:
+            row = dict(fb_res.data[0])
+    except Exception as exc:
+        logger.warning("incident_feedback insert skipped (run incident_feedback_schema.sql): %s", exc)
+
+    _timeline(
+        incident_id,
+        f"Feedback by {_actor(current_user)}: "
+        + ("real incident" if body.is_real else "false positive"),
+        "feedback",
+    )
+    return row
 
 
 @router.patch("/{incident_id}", response_model=IncidentResponse)
@@ -302,6 +353,15 @@ async def update_incident(
     res = supabase.table("incidents").update(updates).eq("id", incident_id).execute()
     incident = dict(res.data[0]) if res.data else dict(inc.data)
 
+    # Assign trail: only when the assignee actually changed.
+    new_assignee = updates.get("assigned_to")
+    if new_assignee is not None and new_assignee != inc.data.get("assigned_to"):
+        _timeline(
+            incident_id,
+            f"Assigned to {new_assignee} by {_actor(current_user)}",
+            "assign",
+        )
+
     comments_res = supabase.table("incident_comments").select("*").eq("incident_id", incident_id).execute()
     incident["comments"] = comments_res.data or []
     timeline_res = supabase.table("incident_timeline").select("*").eq("incident_id", incident_id).execute()
@@ -314,5 +374,69 @@ async def update_incident(
         await broadcast_incident_changed(incident, actor_name=getattr(current_user, "email", "") or "")
     except Exception as exc:
         logger.debug("incident update broadcast skipped (non-fatal): %s", exc)
+
+
+@router.post("/{incident_id}/remediation", summary="AI-generated remediation for one incident")
+async def remediate_incident(incident_id: str, current_user=Depends(get_current_user)):
+    """Generate remediation steps from the incident's live fields (cached per incident).
+
+    Steps reference the actual error, failed stage, provider, and log lines —
+    never canned seed text. Falls back to a labeled-generic list only when the
+    AI backend is unreachable.
+    """
+    project_ids = _user_project_ids(str(current_user.id))
+    inc = supabase.table("incidents").select("*").eq("id", incident_id).single().execute()
+    if not inc.data or inc.data.get("project_id") not in project_ids:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incident not found")
+    incident = inc.data
+
+    cached = await ai_service.get_cached(incident_id)
+    if cached:
+        return {"steps": cached.get("steps", []), "cached": True, "generic": False}
+
+    deployment: dict = {}
+    failed_stage = ""
+    if incident.get("deployment_id"):
+        try:
+            dep = supabase.table("deployments").select(
+                "error_message,provider,branch,version,stages").eq(
+                "id", incident["deployment_id"]).single().execute()
+            if dep.data:
+                deployment = dep.data
+                stages = deployment.get("stages") or []
+                if isinstance(stages, str):
+                    try:
+                        import json as _json
+                        stages = _json.loads(stages)
+                    except Exception:
+                        stages = []
+                failed = next((s for s in stages
+                               if isinstance(s, dict) and s.get("status") == "failed"), None)
+                failed_stage = str((failed or {}).get("name") or "")
+        except Exception as exc:
+            logger.debug("remediation deployment lookup skipped: %s", exc)
+
+    context = {
+        "title": incident.get("title", ""),
+        "description": incident.get("description", ""),
+        "error_message": deployment.get("error_message") or incident.get("description") or "",
+        "failed_stage": failed_stage,
+        "provider": deployment.get("provider") or incident.get("provider") or "",
+        "branch": deployment.get("branch") or "",
+        "deployment_version": deployment.get("version") or "",
+        "incident_severity": incident.get("severity") or "",
+        "user_question": "Give step-by-step remediation for this specific incident.",
+    }
+    try:
+        result = await ai_service.analyze_incident(context)
+        await ai_service.cache(incident_id, result)
+        return {"steps": result.get("steps", []), "cached": False, "generic": False}
+    except Exception as exc:
+        logger.warning("remediation generation failed: %s", exc)
+        return {"steps": [
+            {"title": "Inspect runtime logs", "description": "Check application and provider logs for errors."},
+            {"title": "Verify environment configuration", "description": "Confirm required variables and credentials."},
+            {"title": "Mark incident as resolved", "description": "Verify system health first."},
+        ], "cached": False, "generic": True}
 
     return incident

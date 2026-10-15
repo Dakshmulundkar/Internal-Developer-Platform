@@ -69,6 +69,8 @@ class Settings(BaseSettings):
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     # Without this, keys are stored as-is (dev convenience only — loud warning).
     FERNET_KEY: str = ""
+    # Previous key, kept only during rotation (decrypt-only).
+    FERNET_PREVIOUS_KEY: str = ""
 
     # ── Plugin OAuth (Slack / Microsoft Teams) ─────────────────────────
     # Without these, OAuth connect buttons report "not configured" and the
@@ -86,3 +88,30 @@ class Settings(BaseSettings):
 
 # Singleton — import this everywhere instead of instantiating Settings() repeatedly
 settings = Settings()
+
+
+def collect_config_warnings(s: Settings | None = None) -> list[str]:
+    """Return human-readable warnings for missing REQUIRED / core OPTIONAL config.
+
+    Never raises and never includes secret values — plain strings only.
+    Empty list means the backend is fully configured.
+    """
+    s = s or settings
+    warnings: list[str] = []
+    if not s.SUPABASE_URL:
+        warnings.append(
+            "SUPABASE_URL is empty: login and data features will fail "
+            "(copy backend/.env.example to backend/.env)"
+        )
+    if not s.SUPABASE_KEY:
+        warnings.append(
+            "SUPABASE_KEY is empty: login and data features will fail "
+            "(copy backend/.env.example to backend/.env)"
+        )
+    if not s.FERNET_KEY:
+        warnings.append(
+            "FERNET_KEY is empty: plugin credential storage and auto-fix tokens will not work"
+        )
+    if not s.GROQ_API_KEY and not s.OPENAI_API_KEY:
+        warnings.append("AI analysis unavailable: set GROQ_API_KEY or OPENAI_API_KEY")
+    return warnings

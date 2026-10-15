@@ -12,6 +12,9 @@ from config import settings
 from database import supabase
 from dependencies import get_current_user, get_optional_user, get_user_project_ids
 from services.incident_service import create_from_alert
+from services.plugins import crypto
+from services.plugins.registry import normalize_plugin_id
+from services import sentry_service
 from services.service_prober import probe_project, trigger_test_event
 from validators import is_valid_uuid
 
@@ -187,3 +190,44 @@ async def ingest_event(
         background_tasks.add_task(create_from_alert, created)
 
     return {"status": "accepted", "alert": created}
+
+
+@router.get("/sentry/issues", summary="Live Sentry issues for the Sentry tab")
+async def list_sentry_issues(current_user=Depends(get_current_user)):
+    """Fetch full issue rows from each connected Sentry installation.
+
+    Per-installation failures are isolated — one bad token never blanks the tab.
+    Returns [] when no Sentry plugin is connected (the tab's empty state covers it).
+    """
+    user_id = str(current_user.id)
+    try:
+        res = supabase.table("plugin_installations").select("*").eq(
+            "installed_by", user_id).eq("status", "connected").execute()
+        installations = res.data or []
+    except Exception as exc:
+        logger.warning("sentry issues: installations unreadable: %s", exc)
+        return []
+
+    issues: list = []
+    for inst in installations:
+        if normalize_plugin_id(inst.get("plugin_id")) != "plugin-sentry":
+            continue
+        if (inst.get("status") or "") != "connected":
+            continue
+        token = crypto.decrypt_key(inst.get("api_key_encrypted"))
+        if not token or "••••" in token:
+            continue
+        config = inst.get("config_data") or {}
+        org = str(config.get("org") or "").strip()
+        raw = config.get("projects") or config.get("project") or ""
+        projects = [p.strip() for p in (raw if isinstance(raw, list) else str(raw).split(",")) if str(p).strip()]
+        if not org or not projects:
+            continue
+        for project in projects:
+            try:
+                for issue in await sentry_service.fetch_issue_details(org, project, token):
+                    issues.append({**issue, "sentry_org": org})
+            except Exception as exc:
+                logger.warning("sentry issues fetch failed for %s/%s: %s", org, project, exc)
+                continue
+    return issues

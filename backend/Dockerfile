@@ -16,7 +16,7 @@ WORKDIR /app
 # curl is required by the HEALTHCHECK below; ca-certificates for TLS to
 # vendor APIs. Trivy static binary powers IDP-side vulnerability scanning
 # (no Docker daemon needed). Pinned + checksummed upstream release.
-ARG TRIVY_VERSION=0.66.0
+ARG TRIVY_VERSION=0.76.0
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && curl -sSL -o /tmp/trivy.tar.gz \

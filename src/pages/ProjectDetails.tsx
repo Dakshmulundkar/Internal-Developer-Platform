@@ -6,6 +6,7 @@ import {
   Activity, Bug, Server, Users, ChevronDown, ChevronUp, Plus, X, Share2
 } from 'lucide-react';
 import { ShareDialog } from '../components/ShareDialog';
+import { RepoHealthPanel } from '../components/RepoHealthPanel';
 import { alertSourceColor, alertSourceLabel } from '../lib/alertUtils';
 import type { DeploymentStatus, IncidentSeverity, ProjectRole } from '../types/platform';
 
@@ -407,6 +408,7 @@ export const ProjectDetails: React.FC = () => {
       {/* ── INFRASTRUCTURE TAB ── */}
       {activeTab === 'infrastructure' && (
         <div className="space-y-4">
+          <RepoHealthPanel projectId={project.id} />
           <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-8 text-center">
             <GitMerge size={24} className="text-zinc-600 mx-auto mb-3" />
             <p className="text-xs font-semibold text-zinc-300">No GitOps status yet</p>

@@ -16,15 +16,25 @@ logger = logging.getLogger(__name__)
 _warned_no_key = False
 
 
-def _fernet() -> Fernet | None:
-    key = (getattr(settings, "FERNET_KEY", "") or "").strip()
-    if not key:
-        return None
-    try:
-        return Fernet(key.encode() if isinstance(key, str) else key)
-    except Exception as exc:
-        logger.error("Invalid FERNET_KEY: %s", exc)
-        return None
+def _fernets() -> list:
+    """Active key first, previous key second (rotation support)."""
+    from cryptography.fernet import Fernet
+
+    keys = []
+    for attr in ("FERNET_KEY", "FERNET_PREVIOUS_KEY"):
+        key = (getattr(settings, attr, "") or "").strip()
+        if not key:
+            continue
+        try:
+            keys.append(Fernet(key.encode() if isinstance(key, str) else key))
+        except Exception as exc:
+            logger.error("Invalid %s: %s", attr, exc)
+    return keys
+
+
+def _fernet():
+    ferns = _fernets()
+    return ferns[0] if ferns else None
 
 
 def encrypt_key(plaintext: str) -> str:
@@ -40,15 +50,20 @@ def encrypt_key(plaintext: str) -> str:
 
 
 def decrypt_key(stored: str | None) -> str:
-    """Decrypt a stored key. Legacy plaintext values pass through untouched."""
+    """Decrypt a stored key, trying the previous key during rotation.
+
+    Values that fail all keys pass through untouched (legacy plaintext rows).
+    Rotation procedure: set FERNET_PREVIOUS_KEY to the old key, deploy a new
+    FERNET_KEY, then re-save (or wait for natural rewrites — encrypt always
+    uses the current key, so rows migrate on next save).
+    """
     if not stored:
         return ""
-    f = _fernet()
-    if f is None:
-        return stored
-    try:
-        return f.decrypt(stored.encode()).decode()
-    except InvalidToken:
-        return stored  # legacy plaintext row
-    except Exception:
-        return ""
+    for f in _fernets():
+        try:
+            return f.decrypt(stored.encode()).decode()
+        except InvalidToken:
+            continue
+        except Exception:
+            return ""
+    return stored  # legacy plaintext row

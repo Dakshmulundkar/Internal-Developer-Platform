@@ -175,7 +175,10 @@ export const PluginConfig: React.FC = () => {
         <div className="space-y-3 text-xs">
           <div>
             <label className="block font-semibold text-zinc-400 mb-1.5">
-              {definition.authMethod === 'api_key' ? 'API Key / Access Token' : 'OAuth Token'}
+              {definition.authMethod === 'api_key' ? 'API Key / Access Token'
+                : definition.authMethod === 'basic_auth' ? 'Password / Basic-auth secret'
+                : definition.authMethod === 'webhook' ? 'Webhook signing secret'
+                : 'OAuth Token'}
             </label>
             <div className="relative">
               <input

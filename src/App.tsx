@@ -3,6 +3,7 @@ import { PlatformProvider, usePlatform } from './context/PlatformContext';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { InviteBanner } from './components/InviteBanner';
+import { DemoModeBanner } from './components/DemoModeBanner';
 import { SearchModal } from './components/SearchModal';
 import { AIAssistantFAB } from './components/AIAssistantFAB';
 
@@ -64,7 +65,12 @@ const AppContent: React.FC = () => {
 
   // Hard guard: never render protected pages without a user
   if (!user) {
-    return <Login />;
+    return (
+      <>
+        <DemoModeBanner />
+        <Login />
+      </>
+    );
   }
 
   const renderPage = () => {
@@ -95,6 +101,7 @@ const AppContent: React.FC = () => {
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         <Header />
+        <DemoModeBanner />
         <InviteBanner />
         <main className="flex-1 overflow-y-auto p-6 bg-dark-950">
           <Suspense fallback={<PageLoader />}>

@@ -3,7 +3,8 @@ import { api, isApiAvailable, ensureValidSession } from '../services/api';
 import type { 
   Project, Deployment, Incident, RollbackOperation, Notification, AuditLog, User,
   DeploymentStatus, IncidentStatus, IncidentSeverity, ProviderType, EnvironmentType,
-  PluginInstallation, MonitoringAlert, SentryIssue, TeamMember, ProjectRole, SecurityMetadata
+  PluginInstallation, MonitoringAlert, SentryIssue, TeamMember, ProjectRole, SecurityMetadata,
+  IncidentFeedback
 } from '../types/platform';
 import {
   pluginDefinitions
@@ -89,6 +90,9 @@ interface PlatformContextProps {
   startRollback: (projectId: string, targetDeploymentId: string) => Promise<void>;
   addComment: (incidentId: string, content: string) => void;
   resolveIncident: (incidentId: string) => void;
+  loadIncidentDetail: (incidentId: string) => Promise<void>;
+  ignoreIncident: (incidentId: string, reason: string) => Promise<void>;
+  submitIncidentFeedback: (incidentId: string, isReal: boolean, comment: string) => Promise<void>;
   markNotificationAsRead: (notificationId: string) => void;
   markAllNotificationsRead: () => void;
   
@@ -516,6 +520,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     securityMetadata: r.security_metadata as SecurityMetadata | undefined,
     comments: [],
     timeline: [],
+    feedback: [],
   });
 
   const mapRemoteAlert = (r: Record<string, unknown>): MonitoringAlert => ({
@@ -816,6 +821,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     projectName: inc.projectName || existing.projectName,
                     comments: existing.comments,
                     timeline: existing.timeline,
+                    feedback: existing.feedback,
                   }
                 : existing
             );
@@ -1237,7 +1243,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               comments: [...inc.comments, newComment],
               timeline: [
                 ...inc.timeline,
-                { event: `Comment added by ${user.name}`, timestamp: new Date().toISOString(), type: 'comment' }
+                { event: `Comment added by ${user.name}: ${content.slice(0, 60)}`, timestamp: new Date().toISOString(), type: 'comment' }
               ]
             };
           }
@@ -1270,7 +1276,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               resolvedAt: new Date().toISOString(),
               timeline: [
                 ...inc.timeline,
-                { event: `Incident marked as RESOLVED by ${user.name}`, timestamp: new Date().toISOString(), type: 'status_change' }
+                { event: `Incident resolved by ${user.name}`, timestamp: new Date().toISOString(), type: 'status_change' }
               ]
             };
           }
@@ -1298,6 +1304,117 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     alert('Backend unreachable. Start the API server to resolve incidents.');
+  };
+
+  // Comments / timeline / feedback only exist server-side — the list endpoint
+  // never carries them, so the detail view must hydrate them on select.
+  const loadIncidentDetail = async (incidentId: string) => {
+    if (!isApiAvailable()) return;
+    try {
+      const data = await api.incidents.get(incidentId);
+      const comments = ((data.comments as Record<string, unknown>[]) || []).map(c => ({
+        id: c.id as string,
+        userId: (c.user_id as string) || '',
+        userName: (c.user_name as string) || 'Unknown',
+        userAvatar: (c.user_avatar as string) || '',
+        content: (c.content as string) || '',
+        createdAt: (c.created_at as string) || new Date().toISOString(),
+      }));
+      const timeline = ((data.timeline as Record<string, unknown>[]) || []).map(t => ({
+        event: (t.event as string) || '',
+        timestamp: (t.created_at as string) || new Date().toISOString(),
+        type: ((t.type as string) || 'action') as Incident['timeline'][number]['type'],
+      }));
+      const feedback = ((data.feedback as Record<string, unknown>[]) || []).map(f => ({
+        id: f.id as string,
+        userId: f.user_id as string | undefined,
+        userName: f.user_name as string | undefined,
+        isReal: !!f.is_real,
+        comment: (f.comment as string) || '',
+        createdAt: (f.created_at as string) || new Date().toISOString(),
+      }));
+      setIncidents(prev => prev.map(inc =>
+        inc.id === incidentId ? { ...inc, comments, timeline, feedback } : inc
+      ));
+    } catch (err) {
+      console.warn('[loadIncidentDetail] API failed:', err);
+    }
+  };
+
+  const ignoreIncident = async (incidentId: string, reason: string) => {
+    if (!user) return;
+    const now = new Date().toISOString();
+    const applyLocal = () => setIncidents(prev => prev.map(inc =>
+      inc.id === incidentId
+        ? {
+            ...inc,
+            status: 'resolved' as IncidentStatus,
+            ignoredReason: reason,
+            timeline: [...inc.timeline, { event: `Ignored by ${user.name}: ${reason}`, timestamp: now, type: 'ignore' as const }],
+          }
+        : inc
+    ));
+
+    if (isApiAvailable()) {
+      try {
+        await api.incidents.ignore(incidentId, reason);
+        applyLocal();
+        setAuditLogs(prev => [{
+          id: 'a_' + Math.random().toString(36).substr(2, 9),
+          userId: user.id,
+          userName: user.name,
+          action: 'INCIDENT_IGNORE',
+          details: `Ignored incident ${incidentId} (${reason}).`,
+          createdAt: now,
+        }, ...prev]);
+        return;
+      } catch (err) {
+        console.error('[ignoreIncident] API failed:', err);
+        alert('Failed to ignore incident on the server. Please try again.');
+        return;
+      }
+    }
+    applyLocal();
+  };
+
+  // Feedback history row + legacy "latest" columns + timeline attribution.
+  const submitIncidentFeedback = async (incidentId: string, isReal: boolean, comment: string) => {
+    if (!user) return;
+    const row: IncidentFeedback = {
+      id: 'fb_' + Math.random().toString(36).substr(2, 9),
+      userId: user.id,
+      userName: user.name,
+      isReal,
+      comment,
+      createdAt: new Date().toISOString(),
+    };
+    const applyLocal = () => setIncidents(prev => prev.map(inc =>
+      inc.id === incidentId
+        ? {
+            ...inc,
+            feedbackIsReal: isReal,
+            feedbackComment: comment,
+            feedback: [row, ...(inc.feedback || [])],
+            timeline: [...inc.timeline, { event: `Feedback by ${user.name}: ${isReal ? 'real incident' : 'false positive'}`, timestamp: row.createdAt, type: 'feedback' as const }],
+          }
+        : inc
+    ));
+
+    if (isApiAvailable()) {
+      try {
+        const res = await api.incidents.feedback(incidentId, isReal, comment || undefined);
+        const rec = res as Record<string, unknown>;
+        if (rec.id) row.id = rec.id as string;
+        if (rec.created_at) row.createdAt = rec.created_at as string;
+        applyLocal();
+        return;
+      } catch (err) {
+        console.error('[submitIncidentFeedback] API failed:', err);
+        alert('Failed to submit feedback on the server. Please try again.');
+        return;
+      }
+    }
+    applyLocal();
   };
 
   const fetchSecurityIncidents = async () => {
@@ -1605,6 +1722,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (updates.assignedTo !== undefined) apiPayload.assigned_to = updates.assignedTo;
         if (updates.description !== undefined) apiPayload.description = updates.description;
         if (updates.suggestedAction !== undefined) apiPayload.suggested_action = updates.suggestedAction;
+        if (updates.ignoredReason !== undefined) apiPayload.ignored_reason = updates.ignoredReason;
         await api.incidents.update(incidentId, apiPayload);
       } catch (err) {
         console.error('[updateIncident] API failed:', err);
@@ -1991,6 +2109,9 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       startRollback,
       addComment,
       resolveIncident,
+      loadIncidentDetail,
+      ignoreIncident,
+      submitIncidentFeedback,
       updateIncident,
       fetchSecurityIncidents,
       resolveSecurityIncident,

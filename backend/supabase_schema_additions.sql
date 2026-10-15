@@ -379,3 +379,30 @@ CREATE INDEX IF NOT EXISTS notifications_user_unread_idx
 --   CREATE INDEX notifications_data_team_member_idx ON notifications ((data->>'team_member_id'));
 
 GRANT ALL ON notifications TO authenticated; GRANT ALL ON notifications TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- ai_chat_messages — per-incident conversation memory for the AI assistant.
+-- Best-effort: the backend treats a missing table as "no history", never fatal.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ai_chat_messages (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  incident_id  UUID NOT NULL,
+  role         TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  content      TEXT NOT NULL,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ai_chat_messages_incident_idx
+  ON ai_chat_messages (incident_id, created_at);
+
+ALTER TABLE ai_chat_messages ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "owner_ai_chat" ON ai_chat_messages;
+CREATE POLICY "owner_ai_chat" ON ai_chat_messages
+  FOR ALL USING (
+    incident_id IN (SELECT id FROM incidents WHERE project_id IN (
+      SELECT project_id FROM team_members WHERE user_id = auth.uid() AND status = 'accepted'
+      UNION SELECT id AS project_id FROM projects WHERE owner_id = auth.uid()
+    ))
+  );
+
+GRANT ALL ON ai_chat_messages TO authenticated; GRANT ALL ON ai_chat_messages TO service_role;

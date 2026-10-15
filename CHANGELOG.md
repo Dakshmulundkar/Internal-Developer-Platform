@@ -3,6 +3,15 @@
 All notable changes to this project. Newest on top.
 Ledger with per-change verification notes: `.opencode/memory/ledger.md`.
 
+## Unreleased — Phase 6 closed (Tasks 56–60)
+- Real rollback execution: fail-closed on missing token, provider errors fail the
+  operation, one active rollback per project, poll timeout marks failed.
+- AI remediation per incident (`POST /incidents/{id}/remediation`, cached, labeled).
+- AI chat memory (`ai_chat_messages`, history-threaded prompts, preload endpoint).
+- Sentry Issues tab live (`GET /monitoring/sentry/issues`, per-project isolation).
+- Honesty batch: 45/45 catalog coverage confirmed, Fernet rotation support,
+  per-plugin sync intervals, auth-method labels.
+
 ## Unreleased — Free deploy + static audit
 - Railway/Netlify compatibility: Trivy binary baked into `backend/Dockerfile`,
   `$PORT`-respecting start command, new `netlify.toml` (SPA fallback, asset caching).

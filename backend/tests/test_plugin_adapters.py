@@ -79,6 +79,42 @@ def test_decrypt_legacy_plaintext_passthrough():
     assert crypto.decrypt_key(None) == ""
 
 
+def test_rotation_previous_key_still_decrypts(monkeypatch):
+    from cryptography.fernet import Fernet
+    from config import settings
+    import services.plugins.crypto as crypto_mod
+
+    old_key = Fernet.generate_key().decode()
+    new_key = Fernet.generate_key().decode()
+    old_stored = Fernet(old_key.encode()).encrypt(b"rotation-secret").decode()
+    monkeypatch.setattr(settings, "FERNET_KEY", new_key, raising=False)
+    monkeypatch.setattr(settings, "FERNET_PREVIOUS_KEY", old_key, raising=False)
+    assert crypto_mod.decrypt_key(old_stored) == "rotation-secret"
+    # New writes always use the current key.
+    fresh = crypto_mod.encrypt_key("fresh-secret")
+    assert crypto_mod.decrypt_key(fresh) == "fresh-secret"
+
+
+def test_sync_due_gating():
+    import time
+    from background.plugin_sync import DEFAULT_SYNC_INTERVAL, SYNC_INTERVALS, _sync_due
+
+    now = time.time()
+    recent = datetime_to_iso(now - 10)
+    old = datetime_to_iso(now - 10_000)
+    assert _sync_due({"plugin_id": "plugin-uptimerobot", "last_sync_at": recent}, now) is False
+    assert _sync_due({"plugin_id": "plugin-uptimerobot", "last_sync_at": old}, now) is True
+    assert _sync_due({"plugin_id": "plugin-grafana", "last_sync_at": None}, now) is True
+    assert _sync_due({"plugin_id": "plugin-grafana", "last_sync_at": "garbage"}, now) is True
+    assert SYNC_INTERVALS["plugin-uptimerobot"] < DEFAULT_SYNC_INTERVAL
+
+
+def datetime_to_iso(ts: float) -> str:
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+
 # ── registry ────────────────────────────────────────────────────────
 
 def test_legacy_ids_normalize():

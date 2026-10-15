@@ -209,6 +209,14 @@ applied incrementally afterward, each verified (compileall + import main + guard
   `audit select(*)` (FIND-N); untyped incident body (FIND-O); AI analyze rate limit (FIND-P);
   `/monitoring/sync` global trigger (FIND-M).
 
+## Session 2026-09-15 — Phase 6 closed (Tasks 56–60)
+- Task 56: rollback fail-closed + idempotency + timeout-fails + Fernet-decrypted tokens.
+- Task 57: `ai_chat_messages` table, 10-turn history threading, per-turn persistence.
+- Task 58: per-incident remediation endpoint (cached, labeled generic on failure).
+- Task 59: Sentry Issues tab live with per-project isolation.
+- Task 60: 45/45 coverage confirmed, rotation support, sync intervals, labels.
+- Verified: pytest 132/132; tsc clean; vite build ✓. phases.md/CHANGELOG.md updated.
+
 ## Session 2026-09-15 — Plugin System, Scanning, Deploy Compat (agent-led)
 
 ### Delivered and verified

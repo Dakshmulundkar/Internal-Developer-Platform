@@ -31,6 +31,26 @@ export const AIAssistant: React.FC = () => {
   ]);
   const [isTyping, setIsTyping] = useState(false);
 
+  // Restore persisted conversation when the incident context changes.
+  // Best-effort: an empty or failed history simply leaves the greeting.
+  useEffect(() => {
+    if (!selectedIncidentId || !isApiAvailable()) return;
+    let cancelled = false;
+    api.ai.chatHistory(selectedIncidentId)
+      .then(res => {
+        if (cancelled) return;
+        const turns = (res.turns || []).map((t, idx) => ({
+          id: `hist-${idx}`,
+          sender: t.role === 'user' ? 'user' as const : 'assistant' as const,
+          content: t.content,
+          createdAt: new Date().toISOString(),
+        }));
+        if (turns.length > 0) setMessages(turns);
+      })
+      .catch(() => { /* offline or table missing — keep greeting */ });
+    return () => { cancelled = true; };
+  }, [selectedIncidentId]);
+
   // Update deployment selections based on selected project
   const projectDeploys = deployments.filter(d => d.projectId === selectedProjId);
   const projectIncidents = incidents.filter(i => i.projectId === selectedProjId);
