@@ -114,6 +114,20 @@ def tree_size_mb(path: Path) -> float:
     return round(total / (1024 * 1024), 1)
 
 
+def clone_head_sha(clone_path: Path) -> str:
+    """Full SHA of the checked-out commit in a clone. "" when unreadable.
+
+    Never raises: a version-stamp failure must not turn into an apply 500.
+    """
+    try:
+        proc = _run_git(["rev-parse", "HEAD"], cwd=clone_path)
+    except RepoAccessError:
+        return ""
+    if proc.returncode != 0:
+        return ""
+    return (proc.stdout or "").strip()
+
+
 def push_and_open_pr(
     clone_path: Path,
     full_name: str,

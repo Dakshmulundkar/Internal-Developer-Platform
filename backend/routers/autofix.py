@@ -119,6 +119,15 @@ def _resolve_repo(project_id: str, user_id: str) -> str:
     return f"{owner}/{repo}"
 
 
+def _project_branch(project_id: str) -> str:
+    """Project's configured branch (label for scanned-version stamps). "" when unknown."""
+    try:
+        res = supabase.table("projects").select("branch").eq("id", project_id).single().execute()
+        return (res.data or {}).get("branch") or ""
+    except Exception:
+        return ""
+
+
 def _record_run(user_id, project_id, repo, branch, pr_url, findings, run_status, error):
     try:
         supabase.table("autofix_runs").insert(
@@ -291,6 +300,8 @@ async def apply_fixes(body: ApplyIn, current_user=Depends(get_current_user)):
 
     try:
         with repo_service.temporary_clone(full_name, token) as clone:
+            head_sha = repo_service.clone_head_sha(clone)
+            scan_branch = _project_branch(body.project_id)
             stack = detect_mod.detect_stack(clone)
             written = detect_mod.generate_dockerfiles(clone)
             lint_entries = lint_runner.run_lint_fixes(clone)
@@ -355,6 +366,7 @@ async def apply_fixes(body: ApplyIn, current_user=Depends(get_current_user)):
                 ticket = await triage_mod.create_triage_ticket(
                     user_id, _user_name(current_user), body.project_id,
                     full_name, tool, f["file"], f["errors"], cause, reason,
+                    commit_sha=head_sha, branch=scan_branch,
                 )
                 if ticket:
                     tickets.append(ticket)

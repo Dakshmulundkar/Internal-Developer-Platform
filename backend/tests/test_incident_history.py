@@ -44,7 +44,8 @@ class FakeTable:
         self._filters[col] = val
         return self
 
-    def in_(self, *a, **k):
+    def in_(self, col, vals):
+        self._filters[col] = list(vals or [])
         return self
 
     def order(self, col, desc=False):
@@ -75,8 +76,18 @@ class FakeTable:
             "incident_timeline": self.db.timeline,
             "incident_feedback": self.db.feedback,
         }.get(self.name, [])
-        rows = [dict(r) for r in src
-                if all(r.get(k) == v for k, v in self._filters.items())]
+
+        def _match(row):
+            for k, v in self._filters.items():
+                actual = row.get(k)
+                if isinstance(v, list):
+                    if actual not in v:
+                        return False
+                elif actual != v:
+                    return False
+            return True
+
+        rows = [dict(r) for r in src if _match(r)]
 
         if self._op == "update":
             updated = []

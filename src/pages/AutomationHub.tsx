@@ -7,7 +7,7 @@ import {
   Zap, CalendarClock, Plus, Search, X, Play, Pause, Trash2, Copy, MoreHorizontal,
   ChevronLeft, AlertTriangle, CheckCircle, Loader, Clock3, Mail, HeartPulse,
   RefreshCw, FileBarChart, ServerCog, Bell, Globe, MessageSquare, History, Tag,
-  SlidersHorizontal, ListPlus, GripVertical, ShieldCheck
+  SlidersHorizontal, ListPlus, GripVertical, ShieldCheck, GitBranch
 } from 'lucide-react';
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -39,6 +39,7 @@ const TASK_META: Record<string, { label: string; icon: React.ReactNode; glyph: s
   health_check: { label: 'Health check', icon: <HeartPulse size={13} />, glyph: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
   alert_sync: { label: 'Alert sync', icon: <RefreshCw size={13} />, glyph: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
   report: { label: 'Report', icon: <FileBarChart size={13} />, glyph: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
+  repo_poll: { label: 'Repo auto-build', icon: <GitBranch size={13} />, glyph: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
 };
 
 const TASK_TYPE_DESC: Record<string, string> = {
@@ -46,6 +47,7 @@ const TASK_TYPE_DESC: Record<string, string> = {
   health_check: 'Probe service endpoints and record uptime',
   alert_sync: 'Pull fresh alerts from monitoring providers',
   report: 'Generate a deployment or incident report',
+  repo_poll: 'Dispatch a pipeline run on every new commit to the linked branch',
 };
 
 const PRESET_CRONS = [

@@ -10,6 +10,7 @@ from models.project import ProjectCreate, ProjectResponse, ProjectUpdate
 from services import audit_service
 from services.pipeline_file import PipelineFileError, check_repo, fetch_definition
 from services.plugins import crypto
+from services.scheduler_service import ensure_repo_poll_task
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -46,6 +47,9 @@ async def create_project(body: ProjectCreate, current_user=Depends(get_current_u
         details=f"Created project '{project.get('name')}'",
         project_id=project.get("id"),
     )
+    # A linked repo starts auto-building on push immediately — no restart,
+    # no manual task setup.
+    ensure_repo_poll_task(project)
     return project
 
 
@@ -91,6 +95,8 @@ async def update_project(
         details=f"Updated project {project_id}",
         project_id=project_id,
     )
+    # Newly linked (or re-linked) repos join auto-build without a restart.
+    ensure_repo_poll_task(res.data[0])
     return res.data[0]
 
 

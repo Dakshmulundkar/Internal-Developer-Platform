@@ -17,8 +17,6 @@ from validators import is_valid_uuid
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-import httpx
-
 # Pause between dry-run stage transitions (patched to 0 in tests).
 STEP_DELAY_S = 4
 
@@ -245,6 +243,52 @@ async def _run_dry_build(deployment_id: str, project: dict, user_id: str,
     })
 
 
+async def _dispatch_build_run(project: dict, user_id: str, pipeline: dict,
+                              commit: dict, provider_name: str,
+                              schedule, event_id: str,
+                              preset: dict | None = None) -> dict | None:
+    """Shared core behind manual dispatch and repo-poll auto-builds.
+
+    Stores a queued deployment for *commit* (``{"sha", "message", "author"}``)
+    and schedules the dry-run walk. ``schedule`` is
+    ``BackgroundTasks.add_task`` (request scope), a no-op (history import),
+    or an asyncio adapter (scheduler scope) — same row either way.
+    ``event_id`` must be unique per run (``external_event_id`` has a UNIQUE
+    constraint). ``preset`` overrides row fields after build (used by history
+    backfill for final status/stages/timestamps).
+    Returns the created row, or None when the insert failed.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    short_sha = str(commit.get("sha") or "")[:7]
+    message = str(commit.get("message") or "").split("\n")[0][:200]
+    row = {
+        "project_id": project.get("id"),
+        "version": pipeline.get("path", "ci.yml"),
+        "status": "queued",
+        "commit_hash": short_sha,
+        "commit_message": message or f"Build from {pipeline.get('path', 'ci.yml')}",
+        "branch": project.get("branch") or "main",
+        "author": str(commit.get("author") or ""),
+        "provider": project.get("provider") or "vercel",
+        "external_event_id": event_id,
+        "created_at": now,
+        "stages": [
+            {"name": "Build", "status": "pending", "durationMs": 0},
+            {"name": "Security", "status": "pending", "durationMs": 0},
+            {"name": "Test", "status": "pending", "durationMs": 0},
+            {"name": "Deploy", "status": "pending", "durationMs": 0},
+        ],
+        "logs": [f"[{now}] Build queued from {pipeline.get('path', 'ci.yml')}."],
+    }
+    if preset:
+        row.update({k: v for k, v in preset.items() if v is not None})
+    created = _insert_deployment(row)
+    if not created:
+        return None
+    schedule(_run_dry_build, created["id"], project, user_id, pipeline, provider_name)
+    return created
+
+
 @router.post("/dispatch/{project_id}", summary="Dispatch a build from the repo pipeline file")
 async def dispatch_build(project_id: str, background_tasks: BackgroundTasks,
                          current_user=Depends(get_current_user)):
@@ -279,7 +323,7 @@ async def dispatch_build(project_id: str, background_tasks: BackgroundTasks,
         raise HTTPException(status_code=exc.status, detail=exc.detail)
 
     # Real commit metadata for the run.
-    commit_hash, commit_message, author = "", "", ""
+    commit: dict = {"sha": "", "message": "", "author": ""}
     try:
         import httpx
 
@@ -290,38 +334,21 @@ async def dispatch_build(project_id: str, background_tasks: BackgroundTasks,
             cresp = await client.get(
                 f"https://api.github.com/repos/{owner}/{repo}/commits/{branch}", headers=headers)
             if cresp.status_code == 200:
-                commit = cresp.json()
-                commit_hash = str(commit.get("sha", ""))[:7]
-                commit_message = str((commit.get("commit") or {}).get("message", "")).split("\n")[0][:200]
-                author = str(((commit.get("commit") or {}).get("author") or {}).get("name", ""))
+                payload = cresp.json()
+                commit = {
+                    "sha": str(payload.get("sha", "")),
+                    "message": str((payload.get("commit") or {}).get("message", "")),
+                    "author": str(((payload.get("commit") or {}).get("author") or {}).get("name", "")),
+                }
     except Exception as exc:
         logger.debug("Latest-commit lookup failed: %s", exc)
 
     provider_name = _provider_connected(user_id)
-    now = datetime.now(timezone.utc).isoformat()
-    row = {
-        "project_id": project_id,
-        "version": pipeline.get("path", "ci.yml"),
-        "status": "queued",
-        "commit_hash": commit_hash,
-        "commit_message": commit_message or f"Build from {pipeline.get('path', 'ci.yml')}",
-        "branch": branch,
-        "author": author,
-        "provider": project.get("provider") or "vercel",
-        "external_event_id": f"manual-{project_id}-{int(time.time())}",
-        "created_at": now,
-        "stages": [
-            {"name": "Build", "status": "pending", "durationMs": 0},
-            {"name": "Security", "status": "pending", "durationMs": 0},
-            {"name": "Test", "status": "pending", "durationMs": 0},
-            {"name": "Deploy", "status": "pending", "durationMs": 0},
-        ],
-        "logs": [f"[{now}] Build queued from {pipeline.get('path', 'ci.yml')}."],
-    }
-    created = _insert_deployment(row)
+    created = await _dispatch_build_run(
+        project, user_id, pipeline, commit, provider_name,
+        background_tasks.add_task, f"manual-{project_id}-{int(time.time())}")
     if not created:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail="Could not store the build run.")
 
-    background_tasks.add_task(_run_dry_build, created["id"], project, user_id, pipeline, provider_name)
     return {"id": created["id"], "pipeline": {k: pipeline.get(k) for k in ("path", "job_count", "step_count")}}

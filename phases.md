@@ -1028,6 +1028,92 @@ empty while columns and the feedback form keep working.
 **Done 2026-10-16:** user ran the file in Supabase — full history live, no code
 changes needed (graceful-degradation path now inactive).
 
+## Phase 10 - Push → Pipeline + triage real-time + CI env (2026-10-16)
+
+User report: only manually-dispatched builds appear; new commits never trigger
+runs. Root cause (verified, no watcher existed): deployments were created only
+by manual dispatch, manual Vercel sync, or provider webhooks — nothing watched
+the linked repo. Fix: in-process polling + live ticket broadcasts.
+
+### Task 88 - repo_poll auto-build (push → pipeline, zero setup)
+**Files:** Modify: `backend/routers/deployments.py`, `backend/services/scheduler_service.py`,
+`backend/routers/scheduled_tasks.py`, `backend/routers/projects.py`,
+`src/pages/AutomationHub.tsx`. New: `backend/tests/test_repo_poll.py` (10 tests).
+**Do:**
+- Extracted `_dispatch_build_run` from `dispatch_build` (manual path behavior
+  identical: same normalization, same `manual-{project}-{time}` event IDs, same
+  500 on failure; regression test pins it).
+- New `repo_poll` scheduled-task type: polls branch HEAD SHA on cron (default
+  `*/5 * * * *`); first sighting seeds silently (no backfill storm); changed
+  SHA dispatches the exact manual flow with the new commit's message/author.
+- `ensure_repo_poll_task` (idempotent) auto-creates one enabled task per
+  repo-linked project: at scheduler startup (covers existing projects) and on
+  project create/update (covers newly linked repos). No new table/column —
+  `last_sha` lives in `task_config`.
+- `_job_wrapper` re-reads the task row every fire (stale captured dict would
+  re-dispatch the same commit forever; also makes UI edits/deletes take effect
+  without restart; orphaned jobs self-remove). `schedule_task` live-adds jobs;
+  `run_task_now` and manual task creation work for the new type.
+- `_TASK_TYPES` allow-list + AutomationHub `TASK_META`/desc/icon entries.
+- **History backfill (same task):** first pass imports recent GitHub Actions
+  runs as deployment rows (real conclusions → ready/failed/building/canceled;
+  unknown conclusions skipped, never fabricated), deduped by `gha-{project}-{run}`
+  event IDs; a `backfilled` flag migrates pre-existing tasks. Repos without
+  Actions just track HEAD. This is what makes *every past version* visible,
+  not just future pushes.
+**Caught by the new tests:** `asyncio.create_task` is not `add_task`-shaped
+(scheduler passes an adapter now).
+
+### Task 89 - triage tickets real-time + up-to-date version
+**Files:** Modify: `backend/services/autofix/triage.py`,
+`backend/services/autofix/repo_service.py`, `backend/routers/autofix.py`.
+Tests: 5 new in `backend/tests/test_autofix_triage.py`.
+**Do:**
+- Every ticket create/refresh broadcasts to the project team
+  (`incident.created` / `incident.changed` via existing `broadcast_to_project`);
+  frontend already handles both, so tickets appear live, no refresh. Broadcast
+  failures never break ticket creation (awaited, fully guarded).
+- Tickets stamp the scanned version: `clone_head_sha` (exact `rev-parse HEAD`
+  of what was scanned) + project branch into `security_metadata` and a
+  "Scanned version: branch@sha" description line.
+- Dedup: open ticket for same file+tool and same SHA is reused silently; a new
+  SHA refreshes the row in place (title/description/severity/metadata) instead
+  of duplicating. Dedup lookup fails open so triage never blocks an apply run.
+**Acceptance:** 7/7 triage tests; full suite green.
+
+### Task 90 - CI backend env (fix/ci-supabase-env)
+**Problem:** CI backend job failed with `supabase_url is required` (run
+38838145986) — CI has no `.env`; tests instantiate the client during
+`monkeypatch.setattr` on the lazy proxy. Reproduced locally (44 failed, no env).
+**Fix (proven, not guessed):** dummy non-secret env in the backend job —
+`SUPABASE_URL=http://localhost:54321`, JWT-shaped anon/service keys
+(supabase-py regex-validates key shape; plain `test-key` raises "Invalid API
+key"), Fernet-shaped `FERNET_KEY` (zero-entropy, needed by the encrypt/decrypt
+roundtrip test). Verified: **210 passed with no `.env` file using exactly these
+values** (all tests fully mock the client; zero network).
+**Status:** commit `9a2a8af` on branch `fix/ci-supabase-env` (ci.yml only).
+Push/PR blocked: no GitHub auth in this environment (credential-manager GUI
+hangs, no `gh`, no token) — run `git push -u origin fix/ci-supabase-env`
+then open the PR yourself.
+**Robust follow-up (documented, not needed):** `database.py` is already lazy
+(`_LazyClient` proxy); no code change required.
+
+**Test evidence (2026-10-16):** backend `pytest tests -q` → **218 passed**;
+`npx tsc --noEmit` clean; `npm test` 8/8; `npm run build` exit 0.
+
+**5-lane parallel review (2026-10-16, all lanes + full suite re-run):**
+scheduler/poll/backfill, deploy/projects/tasks routers, triage/autofix,
+frontend, tests+CI. Fixed from findings: `clone_head_sha` never raises;
+wrapper refresh-failure skips instead of unscheduling; backfill dedup-read
+failure aborts (no duplicate storm); per-run guard in backfill loop; triage
+audit logs guarded (no 500-after-write); refresh broadcast carries full row;
+dead top-level `httpx` import removed; dedup test forbids updates; history
+fake honors `in_()`. Rejected with rationale: frontend `resolved` matches
+server truth (not `ignored`); first-tick silent track is correct when no
+Actions runs exist; dispatch-then-record ordering fails toward visible
+duplicate, never silent loss. CI env block verified present on
+`fix/ci-supabase-env` (reviewer read main, where it lives on the branch).
+
 ---
 
 ## Execution Order Summary
@@ -1058,6 +1144,9 @@ Phase 8 Auto-Fix → 74 schema → 75 token API → 76 repo service → 77 detec
 Phase 9 Tickets → 85 backend history+actors → 86 feedback SQL → 87 Assign+Feedback/Activity UI
                                                                                   ✅
   Human step done: `backend/incident_feedback_schema.sql` run in Supabase 2026-10-16.
+Phase 10 Push→Pipeline → 88 repo_poll auto-build → 89 triage real-time+version → 90 CI env
+                                                                                  ✅
+  Human steps: `git push -u origin fix/ci-supabase-env` + open the PR (auth-blocked here).
 ```
 
 ---
@@ -1077,3 +1166,4 @@ Phase 9 Tickets → 85 backend history+actors → 86 feedback SQL → 87 Assign+
 | Phase 7 — Non-Coder Onboarding | 61–73 | ✅ Complete (_verified 2026-10-15: setup/update/doctor/dev/compose all pass in fresh copy; 3 bugs fixed: pip-exe self-upgrade, Trivy 0.66.0 404→0.76.0, doctor IPv6+8000 fallback_) |
 | Phase 8 — Repo Auto-Fix (PAT) | 74–84 | ✅ Code-complete 2026-10-15 (176 pytest, 8 vitest, build green; security checklist signed; UI per user decisions: dismissible banner, infra-tab button, default settings card). Pending: real-PAT E2E + CI green after push |
 | Phase 9 — Incident Tickets (Assign/Feedback/Activity) | 85–87 | ✅ Complete 2026-10-16 (200 pytest, 8 vitest, tsc + build green; UI per user decisions: Assign for admins + Share for others, assignee = name, full history newest-first, actors in text; `incident_feedback_schema.sql` run in Supabase by user) |
+| Phase 10 — Push→Pipeline + triage real-time + CI env | 88–90 | ✅ Complete 2026-10-16 (215 pytest, 8 vitest, tsc + build green; pushes auto-dispatch via repo_poll, tickets broadcast live with version stamps + dedup). Pending: push `fix/ci-supabase-env` + open PR (auth-blocked here) |
