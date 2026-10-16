@@ -5,7 +5,7 @@ resources:
   - ../../base
 images:
   - name: ghcr.io/dakshmulundkar/idp-backend
-    newTag: f715a80
+    newTag: 7292e77
 patches:
   - path: patch-replicas.yaml
   - path: patch-configmap.yaml
