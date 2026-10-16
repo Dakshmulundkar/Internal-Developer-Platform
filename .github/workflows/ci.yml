@@ -77,6 +77,18 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    env:
+      # Dummy, non-secret values so the test suite can run with no .env file.
+      # Tests fully mock the Supabase client and never touch the network, but
+      # supabase-py validates at construction: the URL must match http(s)://
+      # and the key must be JWT-shaped (regex, no signature check) — a plain
+      # "test-key" raises "Invalid API key". Likewise the encrypt/decrypt
+      # roundtrip test needs a structurally valid Fernet key (32 zero bytes,
+      # base64 — zero entropy, clearly not a secret).
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjk5OTk5OTk5OTl9.dGVzdC1zaWduYXR1cmUtZm9yLWNpLW9ubHk"
+      SUPABASE_SERVICE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6OTk5OTk5OTk5OTl9.dGVzdC1zaWduYXR1cmUtc2VydmljZS1yb2xlLWZvci1jaS1vbmx5"
+      FERNET_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     steps:
       - uses: actions/checkout@v4
 
